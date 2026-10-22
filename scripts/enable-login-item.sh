@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
-APP_PATH="${1:-$ROOT_DIR/dist/Codex算力条.app}"
+APP_PATH="${1:-$HOME/Applications/Codex算力条.app}"
 APP_PATH="${APP_PATH:A}"
 EXECUTABLE="$APP_PATH/Contents/MacOS/CodexPetEnergy"
 PLIST="$HOME/Library/LaunchAgents/com.local.codex-pet-energy.plist"

@@ -1,75 +1,38 @@
-import AppKit
 import SwiftUI
 
 struct EnergyPanelView: View {
     @ObservedObject var store: EnergyStore
-    let mode: EnergyPanelMode
-    let onToggleProjects: () -> Void
-    let onToggleQuota: () -> Void
-    let onResetPosition: () -> Void
+    let refresh: () -> Void
+    let showMore: () -> Void
+    @AppStorage("energy-panel-compact-size-level") private var sizeLevel = "level1"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 7) {
-            CompactQuotaRow(
-                reading: store.overall,
-                modelReading: store.quotaDetails.featuredCompactLimit
-            )
-                .frame(height: EnergyPanelMetrics.compactContentHeight)
-
-            if mode == .projects {
-                EnergyDetailPanel(
-                    reading: store.overall,
-                    summary: store.projectSummary
-                )
-            } else if mode == .quota {
-                QuotaDetailPanel(summary: store.quotaDetails)
+        let compactBase = EnergyPanelLayout.compactBaseSize(showsCountdown: store.showsResetCountdown)
+        let base = store.mode == .compact ? compactBase : EnergyPanelLayout.expandedSize
+        let scale = CompactPanelSize(rawValue: sizeLevel)?.scale ?? 1
+        ZStack(alignment: .topLeading) {
+            if store.mode == .compact {
+                CompactEnergyBar(limits: store.quotaLimits, quotaError: store.quotaRefreshError,
+                    projectError: store.projectRefreshError,
+                    todayTokens: store.hasLoadedProjects ? store.projectSummary.allProjectTotals.totalTokens : nil,
+                    showQuota: { store.setMode(.quota) }, showProjects: { store.setMode(.projects) },
+                    radarSnapshot: store.radarSnapshot, radarLoading: store.isRefreshingRadar,
+                    showsCountdown: store.showsResetCountdown,
+                    showRadar: { store.setMode(.radar) })
+                    .frame(width: compactBase.width, height: compactBase.height)
+                    .transition(.opacity)
+            } else {
+                EnergyDashboardView(store: store, selectMode: { store.setMode($0) }, refresh: refresh,
+                    showMore: showMore, collapse: { store.setCompactMode() })
+                    .frame(width: EnergyPanelLayout.expandedSize.width, height: EnergyPanelLayout.expandedSize.height)
+                    .transition(.opacity)
             }
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .frame(
-            width: mode.size.width,
-            height: mode.size.height,
-            alignment: .top
-        )
-        .contentShape(Rectangle())
-        .accessibilityElement(children: mode.isExpanded ? .contain : .ignore)
-        .accessibilityLabel(accessibilityTitle)
-        .accessibilityValue(
-            EnergyLogic.compactStatusText(
-                for: store.overall,
-                modelReading: store.quotaDetails.featuredCompactLimit
-            )
-        )
-        .accessibilityHint("右键可查看项目算力或剩余用量；左键拖动可调整位置")
-        .accessibilityAction(
-            named: Text(mode.isExpanded ? "关闭算力详情" : "查看项目算力详情"),
-            onToggleProjects
-        )
-        .help("右键可查看项目算力或剩余用量；左键拖动可调整位置")
-        .contextMenu {
-            Button(
-                mode == .projects ? "关闭项目算力" : "查看项目算力",
-                action: onToggleProjects
-            )
-            Button(
-                mode == .quota ? "关闭剩余用量" : "查看剩余用量",
-                action: onToggleQuota
-            )
-            Divider()
-            Button("恢复默认位置", action: onResetPosition)
-            Divider()
-            Button("退出算力条") {
-                NSApp.terminate(nil)
-            }
-        }
-    }
-
-    private var accessibilityTitle: String {
-        switch mode {
-        case .compact: "Codex 剩余额度"
-        case .projects: "Codex 项目算力详情"
-        case .quota: "Codex 剩余用量详情"
-        }
+        }.animation(reduceMotion ? .linear(duration: 0.08) : EnergyVisualStyle.contentAnimation, value: store.mode)
+            .frame(width: base.width, height: base.height)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: base.width * scale, height: base.height * scale, alignment: .topLeading)
+            .energyPanelSurface(cornerRadius: (store.mode == .compact
+                ? EnergyVisualStyle.compactCornerRadius : EnergyVisualStyle.panelCornerRadius) * scale)
     }
 }

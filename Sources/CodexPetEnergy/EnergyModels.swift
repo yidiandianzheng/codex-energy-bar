@@ -14,6 +14,13 @@ struct EnergyReading: Equatable {
     static let unavailable = EnergyReading(remainingPercent: nil, resetsAt: nil)
 }
 
+struct AccountQuotaReadings: Equatable {
+    let weekly: EnergyReading
+    let spark: EnergyReading
+
+    static let unavailable = AccountQuotaReadings(weekly: .unavailable, spark: .unavailable)
+}
+
 struct ProjectUsageReading: Identifiable, Equatable {
     let directory: String
     let projectName: String
@@ -66,12 +73,7 @@ struct RateLimitSnapshot: Codable, Equatable {
     let primary: RateLimitWindow?
     let secondary: RateLimitWindow?
 
-    init(
-        limitId: String?,
-        limitName: String? = nil,
-        primary: RateLimitWindow?,
-        secondary: RateLimitWindow?
-    ) {
+    init(limitId: String?, limitName: String? = nil, primary: RateLimitWindow?, secondary: RateLimitWindow?) {
         self.limitId = limitId
         self.limitName = limitName
         self.primary = primary
@@ -84,11 +86,8 @@ struct RateLimitReadResult: Codable, Equatable {
     let rateLimitsByLimitId: [String: RateLimitSnapshot]?
     let rateLimitResetCredits: RateLimitResetCreditsSummary?
 
-    init(
-        rateLimits: RateLimitSnapshot,
-        rateLimitsByLimitId: [String: RateLimitSnapshot]? = nil,
-        rateLimitResetCredits: RateLimitResetCreditsSummary? = nil
-    ) {
+    init(rateLimits: RateLimitSnapshot, rateLimitsByLimitId: [String: RateLimitSnapshot]?,
+         rateLimitResetCredits: RateLimitResetCreditsSummary? = nil) {
         self.rateLimits = rateLimits
         self.rateLimitsByLimitId = rateLimitsByLimitId
         self.rateLimitResetCredits = rateLimitResetCredits
@@ -107,162 +106,160 @@ enum EnergyLogic {
         return .red
     }
 
-    static func overallReading(from snapshot: RateLimitSnapshot) -> EnergyReading {
-        guard let window = preferredWindow(from: snapshot) else {
-            return .unavailable
-        }
+    static func reading(from window: RateLimitWindow?) -> EnergyReading {
+        guard let window else { return .unavailable }
         return EnergyReading(
             remainingPercent: remainingPercent(fromUsedPercent: window.usedPercent),
             resetsAt: window.resetsAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 
-    static func remainingDays(until reset: Date?, from now: Date = .now) -> Int? {
-        guard let reset else { return nil }
-        let remainingSeconds = max(0, reset.timeIntervalSince(now))
-        return Int(ceil(remainingSeconds / 86_400))
-    }
-
-    static func compactResetDateText(
-        _ reset: Date?,
-        calendar: Calendar = .autoupdatingCurrent
-    ) -> String {
-        guard let reset else { return "—" }
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "M月d日"
-        return formatter.string(from: reset)
-    }
-
-    static func compactStatusText(
-        for reading: EnergyReading,
-        now: Date = .now,
-        calendar: Calendar = .autoupdatingCurrent
-    ) -> String {
-        let percent = reading.remainingPercent.map { "\($0)%" } ?? "—"
-        let resetDate = compactResetDateText(reading.resetsAt, calendar: calendar)
-        let days = remainingDays(until: reading.resetsAt, from: now).map { "\($0)天" } ?? "—"
-        return "\(percent) · \(resetDate) · \(days)"
-    }
-
-    static func compactStatusText(
-        for reading: EnergyReading,
-        modelReading: QuotaLimitReading?,
-        now: Date = .now,
-        calendar: Calendar = .autoupdatingCurrent
-    ) -> String {
-        let overall = compactStatusText(for: reading, now: now, calendar: calendar)
-        let model = modelReading.map { "\($0.remainingPercent)%" } ?? "—"
-        return "总 \(overall) · 5.3 \(model)"
-    }
-
-    static func belongsToSameLimit(_ update: RateLimitSnapshot, as current: RateLimitSnapshot) -> Bool {
-        guard let currentID = current.limitId, let updateID = update.limitId else { return true }
-        return currentID == updateID
-    }
-
-    static func mergingSparseUpdate(
-        _ update: RateLimitSnapshot,
-        into current: RateLimitSnapshot
-    ) -> RateLimitSnapshot {
-        RateLimitSnapshot(
-            limitId: update.limitId ?? current.limitId,
-            limitName: update.limitName ?? current.limitName,
-            primary: update.primary ?? current.primary,
-            secondary: update.secondary ?? current.secondary
+    static func accountReadings(from snapshot: RateLimitSnapshot) -> AccountQuotaReadings {
+        // ChatGPT's Codex menu exposes these in the same order: the primary
+        // weekly account window, then the GPT-5.3-Codex-Spark model window.
+        AccountQuotaReadings(
+            weekly: reading(from: snapshot.primary),
+            spark: reading(from: snapshot.secondary)
         )
     }
 
-    static func mergingSparseUpdate(
-        _ update: RateLimitSnapshot,
-        into current: RateLimitReadResult
-    ) -> RateLimitReadResult? {
-        var rateLimits = current.rateLimits
-        var rateLimitsByLimitId = current.rateLimitsByLimitId
-        var mergedAnyBucket = false
-
-        if belongsToSameLimit(update, as: current.rateLimits) {
-            rateLimits = mergingSparseUpdate(update, into: current.rateLimits)
-            mergedAnyBucket = true
-        }
-
-        if let limitId = update.limitId,
-           let existing = rateLimitsByLimitId?[limitId] {
-            rateLimitsByLimitId?[limitId] = mergingSparseUpdate(update, into: existing)
-            mergedAnyBucket = true
-        }
-
-        guard mergedAnyBucket else { return nil }
-        return RateLimitReadResult(
-            rateLimits: rateLimits,
-            rateLimitsByLimitId: rateLimitsByLimitId,
-            rateLimitResetCredits: current.rateLimitResetCredits
+    static func accountReadings(from result: RateLimitReadResult) -> AccountQuotaReadings {
+        let sparkSnapshot = result.rateLimitsByLimitId?["codex_bengalfox"]
+            ?? result.rateLimitsByLimitId?.values.first(where: {
+                ($0.limitName ?? "").localizedCaseInsensitiveContains("GPT-5.3-Codex-Spark")
+            })
+        let weekly = reading(from: result.rateLimits.primary)
+        let receivedSpark = reading(from: sparkSnapshot?.primary)
+        // Codex presents both limits under the same weekly reset cycle. The
+        // model bucket may arrive later than the account bucket, so keep the
+        // reset time visible without inventing a model percentage.
+        let spark = EnergyReading(
+            remainingPercent: receivedSpark.remainingPercent,
+            resetsAt: receivedSpark.resetsAt
         )
+        return AccountQuotaReadings(weekly: weekly, spark: spark)
     }
 
-    static func quotaDetailSummary(from result: RateLimitReadResult) -> QuotaDetailSummary {
-        let overall = quotaReading(
-            id: "overall",
-            title: "总额度",
-            snapshot: result.rateLimits
-        )
-        let modelLimits = (result.rateLimitsByLimitId ?? [:])
-            .values
-            .filter { snapshot in
-                snapshot.limitId != result.rateLimits.limitId
-                    && !(snapshot.limitName?.isEmpty ?? true)
-            }
-            .compactMap { snapshot -> QuotaLimitReading? in
-                guard let name = snapshot.limitName else { return nil }
-                return quotaReading(
-                    id: snapshot.limitId ?? name,
-                    title: "\(name) 限额",
-                    snapshot: snapshot
+    static func quotaLimits(from result: RateLimitReadResult) -> [QuotaLimitReading] {
+        var buckets = result.rateLimitsByLimitId ?? [:]
+        let rootID = result.rateLimits.limitId ?? "codex"
+        if buckets[rootID] == nil { buckets[rootID] = result.rateLimits }
+        return buckets.keys.sorted().flatMap { id -> [QuotaLimitReading] in
+            guard let snapshot = buckets[id] else { return [] }
+            let name = id == "codex" ? "账户额度" : (snapshot.limitName ?? id)
+            return [("primary", snapshot.primary), ("secondary", snapshot.secondary)].compactMap { key, window in
+                guard let window else { return nil }
+                let title = id == "codex"
+                    ? (window.windowDurationMins == 10_080 ? "周额度" : "账户 · \(windowDurationText(window.windowDurationMins))")
+                    : "\(name) · \(windowDurationText(window.windowDurationMins))"
+                return QuotaLimitReading(
+                    id: "\(id)-\(key)", title: title,
+                    remainingPercent: reading(from: window).remainingPercent,
+                    resetsAt: reading(from: window).resetsAt,
+                    windowDurationMins: window.windowDurationMins
                 )
             }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        }
+    }
 
-        return QuotaDetailSummary(
-            overall: overall,
-            modelLimits: modelLimits,
-            availableResetCount: result.rateLimitResetCredits?.availableCount
-        )
+    static func mergingSparseUpdate(_ update: RateLimitSnapshot, into current: RateLimitReadResult) -> RateLimitReadResult {
+        var buckets = current.rateLimitsByLimitId ?? [:]
+        if let id = update.limitId {
+            let old = buckets[id]
+            buckets[id] = RateLimitSnapshot(
+                limitId: id,
+                limitName: update.limitName ?? old?.limitName,
+                primary: update.primary ?? old?.primary,
+                secondary: update.secondary ?? old?.secondary
+            )
+        } else if let name = update.limitName,
+                  let id = buckets.first(where: {
+                      ($0.value.limitName ?? "").localizedCaseInsensitiveCompare(name) == .orderedSame
+                  })?.key,
+                  let old = buckets[id] {
+            buckets[id] = RateLimitSnapshot(
+                limitId: old.limitId ?? id,
+                limitName: name,
+                primary: update.primary ?? old.primary,
+                secondary: update.secondary ?? old.secondary
+            )
+        } else if update.limitName == nil {
+            return current
+        }
+        let root = update.limitId == current.rateLimits.limitId
+            ? RateLimitSnapshot(
+                limitId: update.limitId,
+                limitName: update.limitName ?? current.rateLimits.limitName,
+                primary: update.primary ?? current.rateLimits.primary,
+                secondary: update.secondary ?? current.rateLimits.secondary
+            )
+            : current.rateLimits
+        return RateLimitReadResult(rateLimits: root, rateLimitsByLimitId: buckets, rateLimitResetCredits: current.rateLimitResetCredits)
+    }
+
+    static func compactResetDateText(_ reset: Date?, timeZone: TimeZone = .current) -> String {
+        guard let reset else { return "—" }
+        let raw = preciseResetDateText(reset, timeZone: timeZone)
+        guard let space = raw.firstIndex(of: " ") else { return raw }
+        let date = raw[..<space]
+        guard let slash = date.firstIndex(of: "/") else { return raw }
+        let month = date[..<slash]
+        let day = date[date.index(after: slash)...]
+        let time = raw[raw.index(after: space)...]
+        return "\(month)月\(day)日 \(time)"
+    }
+
+    static func statusBarResetDateText(_ reset: Date?, timeZone: TimeZone = .current) -> String {
+        guard let reset else { return "—" }
+        return preciseResetDateText(reset, timeZone: timeZone)
+    }
+
+    static func remainingDays(
+        until reset: Date?,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> Int? {
+        guard let reset else { return nil }
+        return max(0, calendar.dateComponents([.day], from: now, to: reset).day ?? 0)
+    }
+
+    static func resetCountdownText(until reset: Date?, now: Date = .now, timeZone: TimeZone = .current) -> String {
+        guard let reset else { return "重置时间暂不可用" }
+        let seconds = max(0, Int(reset.timeIntervalSince(now).rounded()))
+        if seconds < 48 * 60 * 60 {
+            return "约\(seconds / 3_600)小时\((seconds % 3_600) / 60)分"
+        }
+        return "\(compactResetDateText(reset, timeZone: timeZone)) · 约\(max(1, seconds / 86_400))天后"
+    }
+
+    static func shortResetText(until reset: Date?, now: Date = .now) -> String {
+        guard let reset else { return "重置时间未知" }
+        let seconds = max(0, Int(reset.timeIntervalSince(now).rounded()))
+        if seconds < 48 * 60 * 60 { return "约\(seconds / 3_600)小时" }
+        return "约\(max(1, Int(ceil(Double(seconds) / 86_400))))天后重置"
     }
 
     static func windowDurationText(_ minutes: Int?) -> String {
-        guard let minutes else { return "—" }
-        if minutes.isMultiple(of: 10_080) {
-            return "\(minutes / 10_080)周"
-        }
-        if minutes.isMultiple(of: 1_440) {
-            return "\(minutes / 1_440)天"
-        }
-        if minutes.isMultiple(of: 60) {
-            return "\(minutes / 60)小时"
-        }
+        guard let minutes else { return "未知" }
+        if minutes % 1_440 == 0 { return "\(minutes / 1_440)天" }
+        if minutes % 60 == 0 { return "\(minutes / 60)小时" }
         return "\(minutes)分钟"
     }
 
-    private static func preferredWindow(from snapshot: RateLimitSnapshot) -> RateLimitWindow? {
-        [snapshot.primary, snapshot.secondary]
-            .compactMap { $0 }
-            .max { ($0.windowDurationMins ?? 0) < ($1.windowDurationMins ?? 0) }
-    }
-
-    private static func quotaReading(
-        id: String,
-        title: String,
-        snapshot: RateLimitSnapshot
-    ) -> QuotaLimitReading? {
-        guard let window = preferredWindow(from: snapshot) else { return nil }
-        return QuotaLimitReading(
-            id: id,
-            title: title,
-            remainingPercent: remainingPercent(fromUsedPercent: window.usedPercent),
-            resetsAt: window.resetsAt.map(Date.init(timeIntervalSince1970:)),
-            windowDurationMins: window.windowDurationMins
+    private static func preciseResetDateText(_ reset: Date, timeZone: TimeZone) -> String {
+        reset.formatted(
+            Date.FormatStyle(
+                date: .omitted,
+                time: .omitted,
+                locale: Locale(identifier: "zh_CN"),
+                calendar: Calendar(identifier: .gregorian),
+                timeZone: timeZone
+            )
+            .month(.defaultDigits)
+            .day(.defaultDigits)
+            .hour(.twoDigits(amPM: .omitted))
+            .minute(.twoDigits)
+            .second(.twoDigits)
         )
     }
 }

@@ -3,9 +3,8 @@ import SwiftUI
 enum EnergyToneStyle {
     static func color(for remainingPercent: Int?) -> Color {
         switch EnergyLogic.tone(for: remainingPercent) {
-        case .green: Color(red: 0.20, green: 0.78, blue: 0.35)
-        case .yellow: Color(red: 1.00, green: 0.63, blue: 0.06)
-        case .red: Color(red: 1.00, green: 0.23, blue: 0.19)
+        case .green: EnergyVisualStyle.computeAccent
+        case .yellow, .red: EnergyVisualStyle.warningAccent
         case .unavailable: Color.secondary
         }
     }

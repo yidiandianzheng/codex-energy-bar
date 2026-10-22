@@ -5,17 +5,26 @@ final class CodexRateLimitClient {
     var onUnavailable: (() -> Void)?
 
     private let ioQueue = DispatchQueue(label: "codex.pet.energy.rpc")
+    private let executableOverride: URL?
+    private let timeoutInterval: TimeInterval
+
+    init(executable: URL? = nil, timeoutInterval: TimeInterval = 12) {
+        self.executableOverride = executable
+        self.timeoutInterval = timeoutInterval
+    }
     private var process: Process?
     private var input: FileHandle?
-    private var output: FileHandle?
     private var outputBuffer = Data()
     private var refreshTimer: DispatchSourceTimer?
     private var reconnectWorkItem: DispatchWorkItem?
+    private var snapshotTimeout: DispatchWorkItem?
+    private var initializationTimeout: DispatchWorkItem?
+    private var nextRequestID = 2
+    private var pendingRequestID: Int?
+    private var latestSnapshot: RateLimitReadResult?
     private var stopped = false
     private var reconnectAttempt = 0
-    private var nextSnapshotRequestID = 2
-    private var pendingSnapshotRequestIDs: Set<Int> = []
-    private var latestReadResult: RateLimitReadResult?
+    private var snapshotRequestPending = false
 
     func start() {
         ioQueue.async { [weak self] in
@@ -30,16 +39,25 @@ final class CodexRateLimitClient {
             self.stopped = true
             self.reconnectWorkItem?.cancel()
             self.refreshTimer?.cancel()
-            let runningProcess = self.process
-            runningProcess?.terminationHandler = nil
+            self.process?.terminate()
             self.cleanupProcess()
-            runningProcess?.terminate()
+        }
+    }
+
+    func refresh() {
+        ioQueue.async { [weak self] in
+            guard let self else { return }
+            if self.process == nil {
+                self.connect()
+            } else {
+                self.requestSnapshot()
+            }
         }
     }
 
     private func connect() {
         guard !stopped, process == nil else { return }
-        guard let executable = Self.findCodexExecutable() else {
+        guard let executable = executableOverride ?? Self.findCodexExecutable() else {
             publishUnavailable()
             scheduleReconnect()
             return
@@ -56,10 +74,9 @@ final class CodexRateLimitClient {
         process.standardError = stderrPipe
         self.process = process
         input = stdinPipe.fileHandleForWriting
-        output = stdoutPipe.fileHandleForReading
         outputBuffer.removeAll(keepingCapacity: true)
 
-        output?.readabilityHandler = { [weak self] handle in
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             self?.ioQueue.async { self?.consume(data) }
@@ -78,6 +95,13 @@ final class CodexRateLimitClient {
 
         do {
             try process.run()
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.process?.terminate()
+                self.publishUnavailable()
+            }
+            initializationTimeout = timeout
+            ioQueue.asyncAfter(deadline: .now() + timeoutInterval, execute: timeout)
             send([
                 "method": "initialize",
                 "id": 1,
@@ -85,7 +109,7 @@ final class CodexRateLimitClient {
                     "clientInfo": [
                         "name": "codex-pet-energy",
                         "title": "Codex 算力条",
-                        "version": "1.0.0",
+                        "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.0",
                     ],
                     "capabilities": [
                         "experimentalApi": false,
@@ -113,28 +137,28 @@ final class CodexRateLimitClient {
     }
 
     private func handle(_ message: [String: Any]) {
-        if (message["id"] as? Int) == 1, message["result"] != nil {
+        if (message["id"] as? Int) == 1 {
+            initializationTimeout?.cancel()
+            initializationTimeout = nil
+            guard message["error"] == nil else {
+                process?.terminate()
+                publishUnavailable()
+                return
+            }
             send(["method": "initialized"])
             requestSnapshot()
             startRefreshTimer()
             return
         }
 
-        if (message["id"] as? Int) == 1, message["error"] != nil {
-            handleConnectionFailure()
-            return
-        }
-
-        if let id = message["id"] as? Int, pendingSnapshotRequestIDs.remove(id) != nil {
-            guard message["error"] == nil,
-                  let result = message["result"],
-                  let decoded: RateLimitReadResult = decode(result)
-            else {
-                publishUnavailable()
-                return
-            }
+        if (message["id"] as? Int) == pendingRequestID && pendingRequestID != nil,
+           let result = message["result"],
+           let decoded: RateLimitReadResult = decode(result) {
+            snapshotRequestPending = false
+            snapshotTimeout?.cancel()
+            snapshotTimeout = nil
             reconnectAttempt = 0
-            latestReadResult = decoded
+            latestSnapshot = decoded
             publish(decoded)
             return
         }
@@ -142,29 +166,36 @@ final class CodexRateLimitClient {
         if (message["method"] as? String) == "account/rateLimits/updated",
            let params = message["params"] as? [String: Any],
            let snapshotObject = params["rateLimits"],
-           let update: RateLimitSnapshot = decode(snapshotObject) {
-            guard let latestReadResult else {
-                requestSnapshot()
-                return
-            }
-            guard let merged = EnergyLogic.mergingSparseUpdate(
-                update,
-                into: latestReadResult
-            ) else {
-                requestSnapshot()
-                return
-            }
-            self.latestReadResult = merged
+           let snapshot: RateLimitSnapshot = decode(snapshotObject) {
+            let merged = latestSnapshot.map { EnergyLogic.mergingSparseUpdate(snapshot, into: $0) }
+                ?? RateLimitReadResult(rateLimits: snapshot, rateLimitsByLimitId: [snapshot.limitId ?? "default": snapshot])
+            latestSnapshot = merged
             publish(merged)
             return
+        }
+
+        if (message["id"] as? Int) == pendingRequestID && pendingRequestID != nil, message["error"] != nil {
+            snapshotRequestPending = false
+            snapshotTimeout?.cancel()
+            snapshotTimeout = nil
+            publishUnavailable()
         }
     }
 
     private func requestSnapshot() {
-        let requestID = nextSnapshotRequestID
-        nextSnapshotRequestID += 1
-        pendingSnapshotRequestIDs.insert(requestID)
-        send(["method": "account/rateLimits/read", "id": requestID])
+        guard !snapshotRequestPending, input != nil else { return }
+        snapshotRequestPending = true
+        pendingRequestID = nextRequestID
+        nextRequestID += 1
+        snapshotTimeout?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.snapshotRequestPending = false
+            self.publishUnavailable()
+        }
+        snapshotTimeout = timeout
+        ioQueue.asyncAfter(deadline: .now() + timeoutInterval, execute: timeout)
+        send(["method": "account/rateLimits/read", "id": pendingRequestID!])
     }
 
     private func startRefreshTimer() {
@@ -186,7 +217,10 @@ final class CodexRateLimitClient {
         do {
             try input.write(contentsOf: line)
         } catch {
-            handleConnectionFailure()
+            snapshotRequestPending = false
+            snapshotTimeout?.cancel()
+            snapshotTimeout = nil
+            publishUnavailable()
         }
     }
 
@@ -197,8 +231,8 @@ final class CodexRateLimitClient {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
-    private func publish(_ result: RateLimitReadResult) {
-        DispatchQueue.main.async { [weak self] in self?.onSnapshot?(result) }
+    private func publish(_ snapshot: RateLimitReadResult) {
+        DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }
     }
 
     private func publishUnavailable() {
@@ -207,7 +241,6 @@ final class CodexRateLimitClient {
 
     private func scheduleReconnect() {
         guard !stopped else { return }
-        reconnectWorkItem?.cancel()
         reconnectAttempt += 1
         let delays: [TimeInterval] = [2, 5, 15, 30]
         let delay = delays[min(reconnectAttempt - 1, delays.count - 1)]
@@ -217,30 +250,23 @@ final class CodexRateLimitClient {
     }
 
     private func cleanupProcess() {
+        initializationTimeout?.cancel()
+        initializationTimeout = nil
+        pendingRequestID = nil
         refreshTimer?.cancel()
         refreshTimer = nil
-        output?.readabilityHandler = nil
-        output = nil
+        snapshotTimeout?.cancel()
+        snapshotTimeout = nil
+        snapshotRequestPending = false
         input = nil
         process = nil
-        latestReadResult = nil
-        pendingSnapshotRequestIDs.removeAll(keepingCapacity: true)
         outputBuffer.removeAll(keepingCapacity: true)
-    }
-
-    private func handleConnectionFailure() {
-        guard !stopped else { return }
-        let failedProcess = process
-        failedProcess?.terminationHandler = nil
-        cleanupProcess()
-        failedProcess?.terminate()
-        publishUnavailable()
-        scheduleReconnect()
     }
 
     static func findCodexExecutable() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
+            URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex"),
             URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
             home.appendingPathComponent(".codex/packages/standalone/current/codex"),
             home.appendingPathComponent(".local/bin/codex"),

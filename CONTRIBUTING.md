@@ -4,9 +4,9 @@
 
 ## 提交前先选对入口
 
-- 稳定复现的错误：使用 [错误报告模板](https://github.com/yidiandianzheng/Codex/issues/new?template=bug_report.yml)。
-- 明确、可执行的新功能：使用 [功能建议模板](https://github.com/yidiandianzheng/Codex/issues/new?template=feature_request.yml)。
-- 还不确定方案、希望先交流：使用 [讨论区](https://github.com/yidiandianzheng/Codex/discussions)。
+- 稳定复现的错误：使用 [错误报告模板](https://github.com/yidiandianzheng/codex-energy-bar/issues/new?template=bug_report.yml)。
+- 明确、可执行的新功能：使用 [功能建议模板](https://github.com/yidiandianzheng/codex-energy-bar/issues/new?template=feature_request.yml)。
+- 还不确定方案、希望先交流：使用 [讨论区](https://github.com/yidiandianzheng/codex-energy-bar/discussions)。
 - 安全或隐私问题：不要公开提交，参照 [SECURITY.md](SECURITY.md)。
 
 提交前请搜索已有问题单和讨论，避免重复。
@@ -24,8 +24,8 @@
 ## 本地开发
 
 ```bash
-git clone https://github.com/yidiandianzheng/Codex.git
-cd Codex
+git clone https://github.com/yidiandianzheng/codex-energy-bar.git
+cd codex-energy-bar
 swift run CodexPetEnergy --self-test
 swift build -c release
 ```

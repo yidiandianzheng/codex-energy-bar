@@ -8,7 +8,7 @@ struct QuotaDetailSummary: Equatable {
     var featuredCompactLimit: QuotaLimitReading? {
         modelLimits.first { $0.id == "codex_bengalfox" }
             ?? modelLimits.first {
-                $0.title.localizedCaseInsensitiveContains("GPT-5.3")
+                $0.title.localizedCaseInsensitiveContains("5.3")
             }
     }
 

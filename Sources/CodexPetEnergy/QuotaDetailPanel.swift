@@ -1,47 +1,33 @@
 import SwiftUI
 
 struct QuotaDetailPanel: View {
-    let summary: QuotaDetailSummary
+    let limits: [QuotaLimitReading]
+    let resetCredits: RateLimitResetCreditsSummary?
+    let lastUpdated: Date?
+    let refreshError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                Label("剩余用量", systemImage: "gauge.with.dots.needle.50percent")
-                    .font(.headline)
-
-                Spacer(minLength: 8)
-
-                if let count = summary.availableResetCount {
-                    QuotaResetBadge(count: count)
-                }
-            }
-
-            if let overall = summary.overall {
-                QuotaLimitRow(reading: overall)
-            } else {
-                Text("额度暂不可用")
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            if summary.modelLimits.isEmpty {
-                Text("暂无单独模型额度")
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            if limits.isEmpty && resetCredits == nil {
+                PanelEmptyState(title: lastUpdated == nil ? "正在连接账户" : "暂无可用额度",
+                    systemImage: "gauge", description: refreshError ?? "等待 Codex 返回账户额度，未返回的模型额度不会占位。")
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(summary.modelLimits) { limit in
-                            QuotaLimitRow(reading: limit)
+                    VStack(spacing: 12) {
+                        ForEach(limits) { limit in
+                            QuotaLimitRow(reading: limit, subtitle: "\(EnergyLogic.windowDurationText(limit.windowDurationMins))周期",
+                                systemImage: "gauge.with.dots.needle.50percent", identityColor: EnergyVisualStyle.computeAccent)
                         }
+                        QuotaResetCreditsCard(summary: resetCredits)
                     }
                 }
-                .scrollIndicators(.hidden)
             }
+            Text(refreshError ?? "账户额度与本地 Token 独立计量")
+                .font(EnergyTypography.Detail.caption).foregroundStyle(refreshError == nil ? Color.secondary : EnergyVisualStyle.warningAccent)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, EnergyVisualStyle.panelInset)
+        .padding(.bottom, EnergyVisualStyle.panelInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .energyGlassCard()
     }
 }

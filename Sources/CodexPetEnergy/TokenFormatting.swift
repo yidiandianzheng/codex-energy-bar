@@ -5,12 +5,12 @@ enum TokenFormatting {
         let magnitude: Double
         let suffix: String
 
-        if value >= 1_000_000 {
-            magnitude = Double(value) / 1_000_000
-            suffix = "M"
-        } else if value >= 1_000 {
-            magnitude = Double(value) / 1_000
-            suffix = "K"
+        if value >= 100_000_000 {
+            magnitude = Double(value) / 100_000_000
+            suffix = "亿"
+        } else if value >= 10_000 {
+            magnitude = Double(value) / 10_000
+            suffix = "万"
         } else {
             return String(value)
         }
@@ -19,6 +19,7 @@ enum TokenFormatting {
         let number = magnitude.formatted(
             .number
                 .precision(.fractionLength(fractionLength))
+                .grouping(.never)
                 .locale(Locale(identifier: "zh_CN"))
         )
         return "\(number)\(suffix)"

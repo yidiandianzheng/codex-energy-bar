@@ -1,25 +1,26 @@
-import CoreGraphics
-
-enum EnergyPanelMode: Equatable {
+enum EnergyPanelMode: String, Hashable {
     case compact
     case projects
     case quota
+    case radar
 
-    var size: CGSize {
+    static let dashboardModes: [EnergyPanelMode] = [.quota, .projects, .radar]
+
+    var title: String {
         switch self {
-        case .compact: EnergyPanelMetrics.baseSize
-        case .projects: EnergyPanelMetrics.expandedSize
-        case .quota: EnergyPanelMetrics.quotaSize
+        case .compact: "Codex 算力条"
+        case .projects: "今日算力"
+        case .quota: "额度"
+        case .radar: "重置雷达"
         }
     }
 
-    var isExpanded: Bool { self != .compact }
-
-    mutating func toggleProjects() {
-        self = self == .projects ? .compact : .projects
-    }
-
-    mutating func toggleQuota() {
-        self = self == .quota ? .compact : .quota
+    var systemImage: String {
+        switch self {
+        case .compact: "gauge.with.dots.needle.50percent"
+        case .projects: "chart.bar.xaxis"
+        case .quota: "battery.75percent"
+        case .radar: "dot.radiowaves.left.and.right"
+        }
     }
 }

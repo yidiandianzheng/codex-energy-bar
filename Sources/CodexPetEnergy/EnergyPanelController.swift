@@ -1,211 +1,322 @@
 import AppKit
+import Combine
+import QuartzCore
+import SwiftUI
 import SwiftUI
 
 @MainActor
 final class EnergyPanelController: NSObject, NSWindowDelegate {
+    private enum PositionKeys {
+        static let x = "codex-energy-panel-position-x"
+        static let y = "codex-energy-panel-position-y"
+    }
+
     private let store: EnergyStore
-    private let panel: NSPanel
-    private let hostingView: DraggableHostingView<EnergyPanelView>
-    private var mode = EnergyPanelMode.compact
-    private var customOffset = EnergyPanelPositionStore.load()
-    private var lastLocation: CodexWindowLocation?
-    private var lastDefaultOrigin: CGPoint?
-    private var isApplyingFrame = false
+    private let refreshData: () -> Void
+    private let panel: EnergyFloatingPanel
+    private var statusItem: NSStatusItem?
+    private var modeObserver: AnyCancellable?
+    private var countdownObserver: AnyCancellable?
+    private var displayedMode: EnergyPanelMode = .compact
+    private var suppressAnimations = false
+    private var refreshHostedContent: (() -> Void)?
+    private var compactOrigin: CGPoint?
 
-    private var panelSize: CGSize { mode.size }
-
-    init(store: EnergyStore) {
+    init(store: EnergyStore, refreshData: @escaping () -> Void) {
         self.store = store
-        hostingView = DraggableHostingView(
-            rootView: EnergyPanelView(
-                store: store,
-                mode: .compact,
-                onToggleProjects: {},
-                onToggleQuota: {},
-                onResetPosition: {}
-            )
-        )
-        panel = NSPanel(
-            contentRect: CGRect(origin: .zero, size: EnergyPanelMetrics.baseSize),
+        self.refreshData = refreshData
+        panel = EnergyFloatingPanel(
+            contentRect: CGRect(origin: .zero, size: EnergyPanelLayout.size(for: .compact, showsCountdown: store.showsResetCountdown)),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         super.init()
 
-        hostingView.rootView = EnergyPanelView(
-            store: store,
-            mode: mode,
-            onToggleProjects: { [weak self] in self?.toggleProjectDetails() },
-            onToggleQuota: { [weak self] in self?.toggleQuotaDetails() },
-            onResetPosition: { [weak self] in self?.resetPosition() }
+        let contentView = PanelContentView(
+            rootView: EnergyPanelView(store: store, refresh: refreshData, showMore: { [weak self] in self?.showMore() }),
+            menuProvider: { [weak self] in self?.makeMenu() ?? NSMenu() },
+            dragDidEnd: { [weak self] in self?.saveDraggedPosition() },
+            isCompact: { [weak store] in store?.mode == .compact },
+            activateCompactTarget: { [weak store] in store?.setMode($0) }
         )
-        panel.contentView = hostingView
-        panel.delegate = self
+        panel.contentView = contentView
+        refreshHostedContent = { [weak contentView] in contentView?.refreshHostedContent() }
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
-        panel.isMovable = true
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .transient]
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
+        panel.title = "Codex 算力条"
+
+        modeObserver = store.$mode
+            .dropFirst()
+            .sink { [weak self] mode in self?.resize(for: mode) }
+        countdownObserver = store.$showsResetCountdown.dropFirst().sink { [weak self] visible in
+            guard let self else { return }
+            // Published emits before the store changes. Preserve the compact top edge even
+            // when a countdown appears or disappears while the detail page is open.
+            if self.store.mode != .compact, let origin = self.compactOrigin {
+                let oldHeight = self.panelSize(for: .compact).height
+                let newHeight = self.panelSize(for: .compact, showsCountdown: visible).height
+                self.compactOrigin = CGPoint(x: origin.x, y: origin.y + oldHeight - newHeight)
+            }
+            self.resize(for: self.store.mode, showsCountdown: visible)
+        }
+        panel.collapse = { [weak store] in store?.setCompactMode() }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "Codex 算力条")
+        item.button?.target = self
+        item.button?.action = #selector(toggleVisibility)
+        statusItem = item
+        showInitialPanel()
     }
 
-    func update(for location: CodexWindowLocation?) {
-        lastLocation = location
-        guard let location else {
-            panel.orderOut(nil)
-            return
+    private func saveDraggedPosition() {
+        let compactSize = panelSize(for: .compact)
+        let origin: CGPoint
+        if store.mode == .compact {
+            origin = panel.frame.origin
+        } else {
+            origin = CGPoint(
+                x: panel.frame.minX,
+                y: panel.frame.maxY - compactSize.height
+            )
         }
+        compactOrigin = origin
+        UserDefaults.standard.set(origin.x, forKey: PositionKeys.x)
+        UserDefaults.standard.set(origin.y, forKey: PositionKeys.y)
+    }
 
-        let defaultOrigin = CodexHeaderLayout.defaultPanelOrigin(
-            for: location,
-            panelSize: panelSize
-        )
-        lastDefaultOrigin = defaultOrigin
-        let origin = CodexHeaderLayout.panelOrigin(
-            for: location,
-            panelSize: panelSize,
-            offset: customOffset
-        )
-        isApplyingFrame = true
-        panel.setFrame(CGRect(origin: origin, size: panelSize), display: true)
-        isApplyingFrame = false
+    private func showInitialPanel() {
+        let size = panelSize(for: .compact)
+        let frame: CGRect
+        if UserDefaults.standard.object(forKey: PositionKeys.x) != nil,
+           UserDefaults.standard.object(forKey: PositionKeys.y) != nil {
+            frame = CGRect(
+                x: UserDefaults.standard.double(forKey: PositionKeys.x),
+                y: UserDefaults.standard.double(forKey: PositionKeys.y),
+                width: size.width,
+                height: size.height
+            )
+        } else if let screen = NSScreen.main {
+            let visible = screen.visibleFrame
+            frame = CGRect(
+                x: visible.maxX - size.width - 20,
+                y: visible.maxY - size.height - 20,
+                width: size.width,
+                height: size.height
+            )
+        } else {
+            frame = CGRect(origin: .zero, size: size)
+        }
+        setFrameKeepingVisible(frame)
+        compactOrigin = panel.frame.origin
         panel.orderFrontRegardless()
     }
 
-    func windowDidMove(_ notification: Notification) {
-        guard !isApplyingFrame, let defaultOrigin = lastDefaultOrigin else { return }
-        let origin = panel.frame.origin
-        customOffset = CGSize(
-            width: origin.x - defaultOrigin.x,
-            height: origin.y - defaultOrigin.y
-        )
-        EnergyPanelPositionStore.save(customOffset)
-    }
-
-    private func resetPosition() {
-        customOffset = .zero
-        EnergyPanelPositionStore.reset()
-        update(for: lastLocation)
-    }
-
-    private func toggleProjectDetails() {
-        mode.toggleProjects()
-        refreshRootView()
-    }
-
-    private func toggleQuotaDetails() {
-        mode.toggleQuota()
-        refreshRootView()
-    }
-
-    private func refreshRootView() {
-        hostingView.rootView = EnergyPanelView(
-            store: store,
-            mode: mode,
-            onToggleProjects: { [weak self] in self?.toggleProjectDetails() },
-            onToggleQuota: { [weak self] in self?.toggleQuotaDetails() },
-            onResetPosition: { [weak self] in self?.resetPosition() }
-        )
-        update(for: lastLocation)
-    }
-
-}
-
-enum CodexHeaderLayout {
-    // Match the user-marked header slot: reserve the avatar/title group on the
-    // left and the help/control group on the right, then center inside the
-    // remaining red-box area instead of centering in the whole window.
-    static let headerLeadingReservedWidth: CGFloat = 126
-    static let headerTrailingReservedWidth: CGFloat = 68
-    static let compactTopInset: CGFloat = 10
-    static let sideInset: CGFloat = 12
-
-    static func defaultPanelOrigin(
-        for location: CodexWindowLocation,
-        panelSize: CGSize
-    ) -> CGPoint {
-        let window = location.frame
-        let visible = location.screenVisibleFrame
-        let slotMinX = window.minX + headerLeadingReservedWidth
-        let slotMaxX = window.maxX - headerTrailingReservedWidth
-        let desiredX = slotMinX + (slotMaxX - slotMinX - panelSize.width) / 2
-        let desiredY = window.maxY - compactTopInset - panelSize.height
-
-        let windowMinX = max(window.minX + sideInset, visible.minX)
-        let windowMaxX = min(window.maxX - sideInset - panelSize.width, visible.maxX - panelSize.width)
-        let x = clamped(desiredX, minimum: windowMinX, maximum: windowMaxX)
-
-        let windowMinY = max(window.minY + sideInset, visible.minY)
-        let windowMaxY = min(window.maxY - panelSize.height, visible.maxY - panelSize.height)
-        let y = clamped(desiredY, minimum: windowMinY, maximum: windowMaxY)
-        return CGPoint(x: x, y: y)
-    }
-
-    static func panelOrigin(
-        for location: CodexWindowLocation,
-        panelSize: CGSize,
-        offset: CGSize
-    ) -> CGPoint {
-        let base = defaultPanelOrigin(for: location, panelSize: panelSize)
-        let visible = location.screenVisibleFrame
-        let desiredX = base.x + offset.width
-        let desiredY = base.y + offset.height
-        let x = clamped(
-            desiredX,
-            minimum: visible.minX,
-            maximum: visible.maxX - panelSize.width
-        )
-        let y = clamped(
-            desiredY,
-            minimum: visible.minY,
-            maximum: visible.maxY - panelSize.height
-        )
-        return CGPoint(x: x, y: y)
-    }
-
-    private static func clamped(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
-        guard maximum >= minimum else { return minimum }
-        return min(max(value, minimum), maximum)
-    }
-}
-
-private final class DraggableHostingView<Content: View>: NSHostingView<Content> {
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        guard let window else {
-            super.mouseDown(with: event)
-            return
+    private func resize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil) {
+        let size = panelSize(for: mode, showsCountdown: showsCountdown)
+        let current = panel.frame
+        if mode != .compact, displayedMode == .compact {
+            compactOrigin = current.origin
         }
-        window.performDrag(with: event)
+        let targetOrigin: CGPoint
+        if mode == .compact, displayedMode != .compact, let compactOrigin {
+            targetOrigin = compactOrigin
+        } else {
+            targetOrigin = CGPoint(x: current.minX, y: current.maxY - size.height)
+        }
+        let proposed = CGRect(origin: targetOrigin, size: size)
+        let visible = (panel.screen ?? NSScreen.main)?.visibleFrame ?? proposed
+        let target = PanelFrameLayout.clamped(proposed, to: visible)
+
+        displayedMode = mode
+        guard current.size != target.size || current.origin != target.origin else { return }
+        if mode == .compact {
+            compactOrigin = target.origin
+        }
+        if suppressAnimations || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.setFrame(target, display: true)
+        } else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.8, 0.2, 1)
+                panel.animator().setFrame(target, display: true)
+            } completionHandler: { [weak self] in self?.panel.invalidateShadow() }
+        }
+        panel.orderFrontRegardless()
+        if mode != .compact { panel.makeKey() }
     }
-}
 
-enum EnergyPanelPositionStore {
-    private static let offsetXKey = "energy-panel-custom-offset-x"
-    private static let offsetYKey = "energy-panel-custom-offset-y"
-
-    static func load(defaults: UserDefaults = .standard) -> CGSize {
-        guard defaults.object(forKey: offsetXKey) != nil,
-              defaults.object(forKey: offsetYKey) != nil
-        else { return .zero }
-        return CGSize(
-            width: defaults.double(forKey: offsetXKey),
-            height: defaults.double(forKey: offsetYKey)
-        )
+    private func setFrameKeepingVisible(_ proposed: CGRect) {
+        let visible = (panel.screen ?? NSScreen.main)?.visibleFrame ?? proposed
+        panel.setFrame(PanelFrameLayout.clamped(proposed, to: visible), display: true)
     }
 
-    static func save(_ offset: CGSize, defaults: UserDefaults = .standard) {
-        defaults.set(Double(offset.width), forKey: offsetXKey)
-        defaults.set(Double(offset.height), forKey: offsetYKey)
+    private func panelSize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil) -> CGSize {
+        EnergyPanelLayout.size(for: mode, showsCountdown: showsCountdown ?? store.showsResetCountdown)
     }
 
-    static func reset(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: offsetXKey)
-        defaults.removeObject(forKey: offsetYKey)
+    func control(_ request: EnergyCLIRequest) -> [String: Any] {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        return withTransaction(transaction) { applyControl(request) }
+    }
+
+    private func applyControl(_ request: EnergyCLIRequest) -> [String: Any] {
+        suppressAnimations = true
+        defer { suppressAnimations = false }
+        switch request.command {
+        case "status": break
+        case "show":
+            guard let mode = EnergyPanelMode(rawValue: request.value ?? "") else {
+                return ["ok": false, "error": "无效页面"]
+            }
+            store.setMode(mode)
+            panel.orderFrontRegardless()
+            if mode != .compact { panel.makeKey() }
+        case "hide": panel.orderOut(nil)
+        case "size":
+            guard let size = CompactPanelSize(rawValue: request.value ?? "") else {
+                return ["ok": false, "error": "无效尺寸"]
+            }
+            size.save()
+            resize(for: store.mode)
+            saveDraggedPosition()
+        case "move":
+            guard let x = request.x, let y = request.y else { return ["ok": false, "error": "缺少坐标"] }
+            setFrameKeepingVisible(CGRect(origin: CGPoint(x: x, y: y), size: panel.frame.size))
+            saveDraggedPosition()
+        case "refresh": refreshData()
+        default: return ["ok": false, "error": "未知命令"]
+        }
+        if request.command != "status" {
+            refreshHostedContent?()
+            NSApp.updateWindows()
+            panel.displayIfNeeded()
+            CATransaction.flush()
+        }
+        let frame = panel.frame
+        let now = Date()
+        let quota: [[String: Any]] = store.quotaLimits.map { reading in
+            var item: [String: Any] = ["title": reading.title]
+            item["remainingPercent"] = reading.remainingPercent.map { $0 as Any } ?? NSNull()
+            return item
+        }
+        let radar: [String: Any] = [
+            "summary": store.radarSnapshot?.compactText(now: now) ?? "暂无数据",
+            "fresh": store.radarSnapshot?.primaryIsFresh(now: now) ?? false,
+            "probabilityFresh": store.radarSnapshot?.forecastIsFresh(now: now) ?? false,
+            "probabilitySource": store.radarSnapshot?.probabilitySourceName(now: now) ?? "unknown",
+            "averaged": store.radarSnapshot?.isAveraged(now: now) ?? false,
+            "codexResetsProbability": store.radarSnapshot?.announcementProbability(now: now).map { $0 as Any } ?? NSNull(),
+            "codexResetProbability": store.radarSnapshot?.referenceProbability(now: now).map { $0 as Any } ?? NSNull(),
+            "codexResetsURL": ResetRadarSources.primaryURL.absoluteString,
+            "codexResetURL": ResetReferenceForecast.pageURL.absoluteString,
+            "errors": store.radarSnapshot?.errors ?? []
+        ]
+        var result: [String: Any] = [
+            "ok": true, "schemaVersion": 1,
+            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development",
+            "mode": store.mode.rawValue, "visible": panel.isVisible,
+            "sizeLevel": CompactPanelSize.load().rawValue,
+            "frame": ["x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height],
+            "coordinateSystem": "macOS screen points, primary screen bottom-left origin",
+            "countdownRowVisible": store.showsResetCountdown,
+            "refreshing": store.currentPageIsRefreshing,
+            "radar": radar,
+            "quota": quota
+        ]
+        if request.command == "refresh" { result["refreshRequested"] = true }
+        return result
+    }
+
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        let quotaItem = item("打开额度面板", action: #selector(showQuota))
+        quotaItem.isEnabled = store.mode != .quota
+        menu.addItem(quotaItem)
+        let projectsItem = item("打开今日算力", action: #selector(showProjects))
+        projectsItem.isEnabled = store.mode != .projects
+        menu.addItem(projectsItem)
+        let radarItem = item("打开重置雷达", action: #selector(showRadar))
+        radarItem.isEnabled = store.mode != .radar
+        menu.addItem(radarItem)
+        menu.addItem(.separator())
+        let refreshItem = item(store.currentPageIsRefreshing ? "正在刷新…" : "刷新当前页", action: #selector(refresh))
+        refreshItem.isEnabled = !store.currentPageIsRefreshing
+        menu.addItem(refreshItem)
+
+        menu.addItem(.separator())
+        for size in CompactPanelSize.allCases {
+            let sizeItem = item("大小：\(size.title)", action: #selector(changeSize(_:)))
+            sizeItem.representedObject = size.rawValue
+            sizeItem.state = size == CompactPanelSize.load() ? .on : .off
+            menu.addItem(sizeItem)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("隐藏浮窗（点击菜单栏图标找回）", action: #selector(hidePanel)))
+        menu.addItem(item("恢复默认位置", action: #selector(resetPosition)))
+        menu.addItem(item("关于 Codex 算力条", action: #selector(showAbout)))
+        menu.addItem(.separator())
+        menu.addItem(item("退出算力条", action: #selector(quit)))
+        return menu
+    }
+
+    private func item(_ title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    private func showMore() {
+        guard let view = panel.contentView else { return }
+        makeMenu().popUp(positioning: nil, at: CGPoint(x: view.bounds.maxX - 60, y: view.bounds.maxY - 42), in: view)
+    }
+
+    @objc private func hidePanel() { panel.orderOut(nil) }
+    @objc private func toggleVisibility() {
+        if panel.isVisible { panel.orderOut(nil) } else {
+            panel.orderFrontRegardless()
+            if store.mode != .compact { panel.makeKey() }
+        }
+    }
+
+    @objc private func showRadar() { store.setMode(.radar) }
+    @objc private func showQuota() { store.setMode(.quota) }
+    @objc private func showProjects() { store.setMode(.projects) }
+    @objc private func refresh() { refreshData() }
+    @objc private func quit() { NSApp.terminate(nil) }
+
+    @objc private func showAbout() {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        let alert = NSAlert(); alert.messageText = "Codex 算力条"; alert.informativeText = "版本 \(version)（构建 \(build)）\n显示账户实际额度与上海时区当天的本地 Token。\n唯一安装位置：~/Applications/Codex算力条.app"; alert.addButton(withTitle: "好"); alert.runModal()
+    }
+
+    @objc private func changeSize(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let size = CompactPanelSize(rawValue: rawValue)
+        else { return }
+        size.save()
+        resize(for: store.mode)
+    }
+
+    @objc private func resetPosition() {
+        UserDefaults.standard.removeObject(forKey: PositionKeys.x)
+        UserDefaults.standard.removeObject(forKey: PositionKeys.y)
+        let size = panelSize(for: store.mode)
+        guard let visible = (panel.screen ?? NSScreen.main)?.visibleFrame else { return }
+        let frame = CGRect(x: visible.maxX - size.width - 20, y: visible.maxY - size.height - 20,
+                           width: size.width, height: size.height)
+        setFrameKeepingVisible(frame)
+        saveDraggedPosition()
+        panel.orderFrontRegardless()
     }
 }

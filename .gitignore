@@ -5,3 +5,8 @@ qa/
 DerivedData/
 *.xcuserstate
 *.swp
+
+# Local backups and private runtime records
+design/
+.orchestrator/
+__pycache__/
