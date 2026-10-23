@@ -110,6 +110,17 @@ final class SyntheticFetches {
 }
 extension Array { subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil } }
 func pump(_ duration: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(duration)) }
+/// A fixed sleep turns queue scheduling into a race on loaded machines: wait
+/// for the expected state instead, then assert it. `pump` only drives the main
+/// run loop, so the deadline bounds how long an unreachable state is polled.
+func waitUntil(_ timeout: TimeInterval = 2, _ condition: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() { return true }
+        pump(0.005)
+    }
+    return condition()
+}
 let synthetic = SyntheticFetches()
 let monitor = BalanceMonitor(providerTimeout: 0.2, fetcher: synthetic.fetch)
 var received: [BalanceReading] = []
@@ -125,20 +136,25 @@ monitor.refresh()
 pump(0.02)
 expect(BalanceProvider.allCases.allSatisfy { synthetic.count($0) == 1 }, "single-flight applies independently to every provider")
 synthetic.callback(.deepseek, 0)?(deepseek("1"))
-pump(0.02)
+expect(waitUntil { received.count == 1 }, "fast provider publishes while other providers are pending")
 expect(received.count == 1, "fast provider publishes while other providers are pending")
 monitor.refresh(providers: [.deepseek])
 pump(0.02)
 expect(synthetic.count(.deepseek) == 2 && synthetic.count(.doubao) == 1, "finished provider can refresh while another provider is stuck")
+// Count only this provider: an unrelated provider timing out on a slow runner
+// must not decide whether the stale callback was rejected.
+let publishedBeforeStaleCallback = received.filter { $0.id == "deepseek" }.count
 synthetic.callback(.deepseek, 0)?(deepseek("999"))
-pump(0.02)
-expect(received.count == 1, "duplicate old callback cannot overwrite a new attempt")
+pump(0.05)
+expect(received.filter { $0.id == "deepseek" }.count == publishedBeforeStaleCallback,
+       "duplicate old callback cannot overwrite a new attempt")
 synthetic.callback(.deepseek, 1)?(deepseek("2"))
-pump(0.2)
+expect(waitUntil { received.count == 4 }, "stuck providers timeout independently")
 expect(received.count == 4 && received.filter { $0.id != "deepseek" }.allSatisfy { if case .failed = $0.state { return true }; return false }, "stuck providers timeout independently")
+expect(waitUntil { refreshing.last == [] && finished == 1 }, "all callback state reaches the main queue and final refreshing state clears")
 expect(refreshing.last == [] && finished == 1 && callbacksOnMain, "all callback state reaches the main queue and final refreshing state clears")
 synthetic.callback(.doubao, 0)?(BalanceProvider.doubao.placeholder())
-pump(0.02)
+pump(0.05)
 expect(received.count == 4, "late result after timeout is ignored")
 monitor.stop()
 pump(0.01)
