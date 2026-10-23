@@ -1,5 +1,6 @@
 .DS_Store
 .build/
+.build-local/
 dist/
 qa/
 DerivedData/
@@ -9,4 +10,5 @@ DerivedData/
 # Local backups and private runtime records
 design/
 .orchestrator/
+.workbuddy/
 __pycache__/
