@@ -30,28 +30,54 @@ enum ResetRadarSelfTest {
             snapshot.primary = decode(ResetRadarSources.Primary.self, watchJSON.replacingOccurrences(of: ":75", with: ":" + invalid))
             expect(snapshot.probability(now: now) == nil, "missing or invalid source odds are not invented")
         }
-        let scheduledJSON = watchJSON.replacingOccurrences(of: #""scheduled_reset":null"#, with: #""scheduled_reset":{"scheduled_for":"2026-10-13T07:21:00Z","announced_at":"2026-10-13T07:00:00Z","reset_type":"regular","text":"Test only","source":{}}"#)
-        snapshot.primary = decode(ResetRadarSources.Primary.self, scheduledJSON)
-        expect(snapshot.countdownTarget(now: now) == nil, "75 percent must not start countdown")
-        snapshot.primary = decode(ResetRadarSources.Primary.self, scheduledJSON.replacingOccurrences(of: ":75", with: ":89.9"))
-        expect(snapshot.probability(now: now) == 90 && snapshot.countdownTarget(now: now) == nil, "rounded 89.9 percent must not pass the raw threshold")
-        let countdownJSON = scheduledJSON.replacingOccurrences(of: ":75", with: ":90")
-        snapshot.primary = decode(ResetRadarSources.Primary.self, countdownJSON)
-        expect(snapshot.countdownText(now: now) == "更新倒计时 00:01:00", "90 percent plus precise source time starts countdown")
-        expect(snapshot.countdownText(now: now.addingTimeInterval(1)) == "更新倒计时 00:00:59", "countdown updates every second")
+        let scheduledJSON = #""scheduled_reset":{"status":"scheduled","scheduled_for":"2026-10-13T07:21:00Z","announced_at":"2026-10-13T07:00:00Z","reset_type":"regular","text":"Test only","source":{}}"#
+        let officialJSON = watchJSON.replacingOccurrences(of: #""scheduled_reset":null"#, with: scheduledJSON)
+        snapshot = ResetRadarSnapshot(primary: decode(ResetRadarSources.Primary.self, officialJSON), checkedAt: now, errors: [])
+        expect(snapshot.usesOfficialConfirmation(now: now), "a valid third-party schedule remains available as an announcement")
+        expect(snapshot.probability(now: now) == 75 && snapshot.probabilityTitle(now: now) == "24h预警",
+               "source announcement does not replace independent model odds")
+        expect(snapshot.probabilitySourceName(now: now) == "Codex Resets"
+            && snapshot.probabilitySourceURL(now: now)?.absoluteString == "https://codex-resets.com/zh-CN",
+               "prediction retains its actual source attribution")
+        expect(snapshot.compactText(now: now) == "24h预警 75% · 来源预告 10/13 15:21 · 来源预告倒计时 00:01:00",
+               "compact row carries the announced Beijing time and countdown")
+        expect(snapshot.countdownText(now: now.addingTimeInterval(1)) == "来源预告倒计时 00:00:59", "official countdown updates every second")
         expect(snapshot.countdownText(now: now.addingTimeInterval(60)) == "时间已到·待确认", "deadline does not imply recovery")
         expect(snapshot.countdownTarget(now: now.addingTimeInterval(1801)) == nil, "stale status hides countdown")
         expect(snapshot.activeWatch(now: now.addingTimeInterval(3600)) == nil, "expired watch disappears")
-        for json in [countdownJSON.replacingOccurrences(of: ":90", with: ":89"),
-                     countdownJSON.replacingOccurrences(of: "2026-10-13T07:21:00Z", with: "unknown"),
-                     countdownJSON.replacingOccurrences(of: "regular", with: "banked"),
-                     watchJSON.replacingOccurrences(of: ":75", with: ":100"),
-                     countdownJSON.replacingOccurrences(of: #""latest_reset":null"#, with: #""latest_reset":{"id":"done","reset_type":"regular","announced_at":"2026-10-13T07:19:00Z","text":"Done","source":{}}"#)] {
+        snapshot.primary = decode(ResetRadarSources.Primary.self,
+                                  officialJSON.replacingOccurrences(of: "next 24 hours", with: "next 48 hours"))
+        expect(snapshot.probability(now: now) == 75 && snapshot.probabilityTitle(now: now) == "来源预警",
+               "announcement preserves the original forecast horizon")
+        snapshot.primary = decode(ResetRadarSources.Primary.self, officialJSON.replacingOccurrences(of: ":75", with: ":null"))
+        expect(snapshot.probability(now: now) == nil && snapshot.officialProbability(now: now) == nil, "announcement without odds never invents a probability")
+        snapshot.primary = decode(ResetRadarSources.Primary.self,
+                                  officialJSON.replacingOccurrences(of: #""status":"scheduled","#, with: ""))
+        expect(snapshot.probability(now: now) == 75, "missing schedule status does not override forecast")
+        // Cancelled, banked, undated, future-announced or long-past announcements are not confirmations.
+        for json in [
+            officialJSON.replacingOccurrences(of: #""status":"scheduled""#, with: #""status":"cancelled""#),
+            officialJSON.replacingOccurrences(of: #""status":"scheduled""#, with: #""status":"completed""#),
+            officialJSON.replacingOccurrences(of: "regular", with: "banked"),
+            officialJSON.replacingOccurrences(of: "2026-10-13T07:21:00Z", with: "unknown"),
+            officialJSON.replacingOccurrences(of: "2026-10-13T07:00:00Z", with: "2026-10-13T07:30:00Z"),
+            officialJSON.replacingOccurrences(of: "2026-10-13T07:21:00Z", with: "2026-10-13T05:00:00Z")
+                .replacingOccurrences(of: "2026-10-13T07:00:00Z", with: "2026-10-13T04:00:00Z"),
+            officialJSON.replacingOccurrences(of: #""latest_reset":null"#,
+                with: #""latest_reset":{"id":"done","reset_type":"regular","announced_at":"2026-10-13T07:19:00Z","text":"Done","source":{}}"#),
+        ] {
             snapshot.primary = decode(ResetRadarSources.Primary.self, json)
-            expect(snapshot.countdownTarget(now: now) == nil, "low odds, invalid time, cards, no schedule or completion hide countdown")
+            expect(!snapshot.usesOfficialConfirmation(now: now) && snapshot.countdownTarget(now: now) == nil
+                && snapshot.scheduleText(now: now) == nil && snapshot.compactScheduleText(now: now) == nil,
+                   "invalid announcements hide every schedule representation")
         }
-        snapshot.primary = decode(ResetRadarSources.Primary.self, countdownJSON.replacingOccurrences(of: "2026-10-13T07:21:00Z", with: "2026-10-13T20:00:00Z"))
-        expect(snapshot.scheduleText(now: now) == "预告：10月14日 04:00", "source date converts across midnight in Beijing")
+        snapshot = ResetRadarSnapshot(primary: decode(ResetRadarSources.Primary.self,
+            watchJSON.replacingOccurrences(of: ":75", with: ":100")), checkedAt: now, errors: [])
+        expect(snapshot.probability(now: now) == 100 && snapshot.countdownTarget(now: now) == nil,
+               "a probability without an official dated announcement never starts a countdown")
+        snapshot = ResetRadarSnapshot(primary: decode(ResetRadarSources.Primary.self,
+            officialJSON.replacingOccurrences(of: "2026-10-13T07:21:00Z", with: "2026-10-13T20:00:00Z")), checkedAt: now, errors: [])
+        expect(snapshot.scheduleText(now: now) == "来源预告：10月14日 04:00", "source date converts across midnight in Beijing")
         expect(ResetRadarSources.safeLink("javascript:alert(1)") == nil, "external text is not executable")
         expect(ResetRadarSources.safeLink("file:///tmp/example") == nil, "source links cannot open local files")
         expect(ResetRadarSources.safeLink("https://x.com/thsottiaux/status/1") != nil, "public source links remain usable")
@@ -119,19 +145,19 @@ enum ResetRadarSelfTest {
         snapshot.primary = decode(ResetRadarSources.Primary.self, watchJSON.replacingOccurrences(of: ":75", with: ":0"))
         snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: ":45", with: ":100"))
         expect(snapshot.isAveraged(now: now) && snapshot.probability(now: now) == 50, "an actual zero is a valid input, unlike missing data")
-        snapshot.primary = decode(ResetRadarSources.Primary.self, countdownJSON)
-        snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: ":45", with: ":89.9"))
-        expect(snapshot.probability(now: now) == 90 && snapshot.countdownTarget(now: now) == nil, "unrounded mean controls countdown threshold")
-        snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: ":45", with: ":90"))
-        expect(snapshot.countdownText(now: now) == "更新倒计时 00:01:00", "qualifying mean still requires a precise primary announcement")
+        snapshot.primary = decode(ResetRadarSources.Primary.self, officialJSON)
+        snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON)
+        expect(snapshot.probability(now: now) == 60 && snapshot.isAveraged(now: now) && snapshot.probabilityTitle(now: now) == "24h参考",
+               "source schedule leaves independent dual-source prediction intact")
+        expect(snapshot.countdownText(now: now) == "来源预告倒计时 00:01:00", "the official announcement keeps its countdown next to the model value")
         snapshot.primary = decode(ResetRadarSources.Primary.self, emptyJSON)
         snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: ":45", with: ":100"))
         expect(snapshot.countdownTarget(now: now) == nil, "reference probability cannot invent a scheduled time")
         snapshot.primary = decode(ResetRadarSources.Primary.self, watchJSON)
         snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: "2026-10-13T06:00:00Z", with: "2026-10-13T07:11:00Z"))
         expect(snapshot.announcementProbability(now: now) == nil && snapshot.probability(now: now) == 45, "reference-confirmed reset invalidates an older primary watch")
-        snapshot.primary = decode(ResetRadarSources.Primary.self, countdownJSON)
-        snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: ":45", with: ":100").replacingOccurrences(of: "2026-10-13T06:00:00Z", with: "2026-10-13T07:11:00Z"))
+        snapshot.primary = decode(ResetRadarSources.Primary.self, officialJSON)
+        snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: "2026-10-13T06:00:00Z", with: "2026-10-13T07:11:00Z"))
         expect(snapshot.countdownTarget(now: now) == nil, "a reset confirmed by reference also cancels an older primary announcement countdown")
         let laterPrimaryJSON = watchJSON.replacingOccurrences(of: #""latest_reset":null"#, with: #""latest_reset":{"id":"done","reset_type":"regular","announced_at":"2026-10-13T06:15:00Z","text":"Done","source":{}}"#)
         snapshot.primary = decode(ResetRadarSources.Primary.self, laterPrimaryJSON)
@@ -139,11 +165,68 @@ enum ResetRadarSelfTest {
         expect(snapshot.isAveraged(now: now), "observation and announcement minutes apart can describe the same completed reset")
         snapshot.reference = decode(ResetReferenceForecast.self, referenceJSON.replacingOccurrences(of: "2026-10-13T06:00:00Z", with: "2026-10-13T02:00:00Z"))
         expect(snapshot.probability(now: now) == 75 && !snapshot.isAveraged(now: now), "reference missing a newer reset cycle is excluded")
+        // codex-reset.com headlines its published Tibo-commitment signal; the
+        // app mirrors that value instead of substituting the cadence model.
+        let commitmentJSON = #"{"mode":"announced","updated_at":"2026-10-13T07:19:00Z","last_reset_at":"2026-10-13T02:00:00Z","probabilities":{"rounded_24h":32,"rounded_48h":53,"signal_percent":93},"official_signal":{"at":"2026-10-13T04:00:00Z","signal_type":"dated_commitment","score":{"value":93},"window":{"label":"by 10 AM PT on Oct 13","target_at":"2026-10-13T20:00:00Z","time_zone":"America/Los_Angeles"}},"confidence":"low"}"#
+        snapshot = ResetRadarSnapshot(primary: decode(ResetRadarSources.Primary.self, emptyJSON),
+            reference: decode(ResetReferenceForecast.self, commitmentJSON), checkedAt: now, errors: [])
+        expect(snapshot.commitmentProbability(now: now) == 93, "the source's committed-window signal is exposed as a reading")
+        expect(snapshot.probability(now: now) == 93, "the headline commitment probability replaces the cadence model")
+        expect(snapshot.probabilityTitle(now: now) == "承诺预测", "commitment odds are never relabelled as a 24h model")
+        expect(snapshot.probabilitySourceName(now: now) == "codex-reset.com"
+            && snapshot.probabilitySourceURL(now: now)?.absoluteString == "https://codex-reset.com/zh/",
+               "commitment odds keep their actual source attribution")
+        expect(snapshot.referenceProbability(now: now) == 32 && snapshot.referenceProbability48h(now: now) == 53,
+               "the same response keeps its separate 24h/48h cadence readings")
+        expect(snapshot.referenceHeadlineProbability(now: now) == 93, "source headline value prefers the commitment signal")
+        expect(snapshot.commitmentWindowDescription(now: now) == "10月14日 04:00（北京时间）前", "committed window is localized")
+        expect(snapshot.compactForecastDetail(now: now) == "承诺至 10/14 04:00", "compact detail names the committed window")
+        expect(snapshot.compactText(now: now) == "承诺预测 93% · 承诺至 10/14 04:00", "compact row carries the commitment value")
+        expect(!snapshot.isAveraged(now: now) && snapshot.usesReferenceProbability(now: now),
+               "commitment odds are source-published, not an app-computed average")
+        snapshot.primary = decode(ResetRadarSources.Primary.self,
+            officialJSON.replacingOccurrences(of: "2026-10-13T07:21:00Z", with: "2026-10-13T20:00:00Z"))
+        expect(snapshot.probability(now: now) == 93 && snapshot.usesOfficialConfirmation(now: now)
+            && snapshot.compactText(now: now) == "承诺预测 93% · 来源预告 10/14 04:00 · 来源预告倒计时 12:40:00",
+               "a dated source announcement keeps its own time and countdown next to the commitment odds")
+        snapshot.primary = decode(ResetRadarSources.Primary.self, watchJSON)
+        expect(snapshot.probability(now: now) == 93 && !snapshot.isAveraged(now: now),
+               "a commitment signal outranks equal-window averaging instead of being averaged with it")
+        snapshot.primary = decode(ResetRadarSources.Primary.self, emptyJSON)
+        snapshot.reference = decode(ResetReferenceForecast.self, commitmentJSON.replacingOccurrences(of: "2026-10-13T02:00:00Z", with: "2026-10-12T06:00:00Z")
+            .replacingOccurrences(of: "2026-10-13T04:00:00Z", with: "2026-10-12T04:00:00Z"))
+        expect(snapshot.probability(now: now) == 32 && snapshot.commitmentProbability(now: now) == nil,
+               "a reference reset completed after the promise resolves the commitment back to the cadence model")
+        snapshot.reference = decode(ResetReferenceForecast.self, commitmentJSON.replacingOccurrences(of: "rounded_24h\":32", with: "rounded_24h\":null"))
+        expect(snapshot.commitmentProbability(now: now) == 93 && snapshot.probability(now: now) == 93,
+               "an invalid cadence number does not discard a valid commitment signal")
+        for json in [
+            commitmentJSON.replacingOccurrences(of: "\"value\":93", with: "\"value\":null")
+                .replacingOccurrences(of: "\"signal_percent\":93", with: "\"signal_percent\":null"),
+            commitmentJSON.replacingOccurrences(of: "\"value\":93", with: "\"value\":101"),
+            commitmentJSON.replacingOccurrences(of: "\"value\":93", with: "\"value\":-1"),
+            commitmentJSON.replacingOccurrences(of: "\"target_at\":\"2026-10-13T20:00:00Z\"", with: "\"target_at\":\"2026-10-13T03:00:00Z\""),
+        ] {
+            snapshot.reference = decode(ResetReferenceForecast.self, json)
+            expect(snapshot.commitmentProbability(now: now) == nil && snapshot.probability(now: now) == 32,
+                   "invalid or reversed commitment readings fall back to the cadence model")
+        }
+        snapshot.reference = decode(ResetReferenceForecast.self, commitmentJSON.replacingOccurrences(of: "2026-10-13T20:00:00Z", with: "2026-10-13T05:00:00Z"))
+        expect(snapshot.commitmentProbability(now: now) == nil && snapshot.probability(now: now) == 32,
+               "a commitment deadline more than two hours past is no longer a live probability")
+        snapshot.primary = decode(ResetRadarSources.Primary.self, watchJSON.replacingOccurrences(of: #""latest_reset":null"#,
+            with: #""latest_reset":{"id":"done","reset_type":"regular","announced_at":"2026-10-13T07:19:00Z","text":"Done","source":{}}"#))
+        snapshot.reference = decode(ResetReferenceForecast.self, commitmentJSON.replacingOccurrences(of: "2026-10-13T02:00:00Z", with: "2026-10-13T07:19:30Z"))
+        expect(snapshot.commitmentProbability(now: now) == nil, "a confirmed reset resolves the commitment instead of keeping its odds")
+        snapshot.primary = decode(ResetRadarSources.Primary.self, emptyJSON)
+        snapshot.reference = decode(ResetReferenceForecast.self, commitmentJSON.replacingOccurrences(of: "\"target_at\":\"2026-10-13T20:00:00Z\"", with: "\"target_at\":null"))
+        expect(snapshot.commitmentProbability(now: now) == 93, "a promise without a deadline remains a valid source signal")
+        expect(snapshot.compactText(now: now) == "承诺预测 93% · codex-reset.com", "a windowless promise stays attributed to its source")
         expect(ResetRadarHTTP.retryDate("1200", now: now) == now.addingTimeInterval(1200), "Retry-After seconds are respected")
         expect(ResetRadarHTTP.retryDate("Tue, 13 Oct 2026 08:00:00 GMT", now: now) == ResetRadarSources.date("2026-10-13T08:00:00Z"), "Retry-After HTTP date is respected")
         expect(ResetRadarHTTP.retryDate("invalid", now: now) == now.addingTimeInterval(60), "invalid retry header uses minimum polling interval")
-        var tracking = CompactPointerTracking(start: .zero, target: .radar)
+        var tracking = CompactPointerTracking(start: CGPoint(x: 0, y: 0), target: .radar)
         tracking.update(to: CGPoint(x: 5, y: 0))
-        expect(tracking.finish(at: .zero, target: .radar) == nil, "radar shares drag versus click arbitration")
+        expect(tracking.finish(at: CGPoint(x: 0, y: 0), target: .radar) == nil, "radar shares drag versus click arbitration")
     }
 }

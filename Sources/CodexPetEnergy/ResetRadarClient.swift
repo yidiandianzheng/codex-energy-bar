@@ -66,7 +66,14 @@ final class ResetRadarClient {
             // Freshness still uses generated_at, so a retry cannot renew an expired reading.
             let primary = decode(ResetRadarSources.Primary.self, 0) ?? self?.lastSnapshot?.primary
             let archive = decode(ResetRadarSources.Archive.self, 1) ?? self?.lastSnapshot?.archive
-            let reference = decode(ResetReferenceForecast.self, 2) ?? self?.lastSnapshot?.reference
+            // A 200 response can still be a source error payload (e.g. published_copy_unavailable);
+            // it decodes into an all-optional struct with no reading, so keep the last good one.
+            func decodedReference() -> ResetReferenceForecast? {
+                guard let decoded: ResetReferenceForecast = decode(ResetReferenceForecast.self, 2) else { return nil }
+                if decoded.updated_at == nil, decoded.probabilities == nil, decoded.official_signal == nil { return nil }
+                return decoded
+            }
+            let reference = decodedReference() ?? self?.lastSnapshot?.reference
             for (index, retry) in retryDates {
                 self?.retryAfter[index] = retry
                 errors.append("\(names[index])请求受限，\(ResetRadarSources.beijing(retry)) 后可重试")
@@ -83,7 +90,7 @@ final class ResetRadarClient {
         var request = URLRequest(url: URL(string: endpoint)!)
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("CodexEnergyBar/1.3.4 (+https://github.com/yidiandianzheng/codex-energy-bar)", forHTTPHeaderField: "User-Agent")
+        request.setValue("ComputeRing/1.4.0 (+https://github.com/yidiandianzheng/compute-ring)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         // Ephemeral session avoids cookies and credential persistence on third-party sites.
         let configuration = URLSessionConfiguration.ephemeral
