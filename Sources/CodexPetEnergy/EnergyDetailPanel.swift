@@ -4,6 +4,9 @@ struct EnergyDetailPanel: View {
     let summary: ProjectUsageDaySummary
     let isLoading: Bool
     let error: String?
+    var codexTokens: Int? = nil
+    var accountReadings: [BalanceReading] = []
+    var todayUsage: TodayUsageSnapshot = .empty
 
     var body: some View {
         Group {
@@ -16,7 +19,8 @@ struct EnergyDetailPanel: View {
                     description: "首次扫描在后台进行，完成后会自动更新。"
                 )
             } else {
-                ProjectUsageContent(summary: summary)
+                ProjectUsageContent(summary: summary, codexTokens: codexTokens,
+                                    accountReadings: accountReadings, todayUsage: todayUsage)
             }
         }
         .padding(.horizontal, EnergyVisualStyle.panelInset)

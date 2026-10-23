@@ -96,7 +96,8 @@ struct RateLimitReadResult: Codable, Equatable {
 
 enum EnergyLogic {
     static func remainingPercent(fromUsedPercent usedPercent: Double) -> Int {
-        Int((100 - usedPercent).rounded()).clamped(to: 0...100)
+        guard usedPercent.isFinite else { return 0 }
+        return Int(min(max((100 - usedPercent).rounded(), 0), 100))
     }
 
     static func tone(for remainingPercent: Int?) -> EnergyTone {
@@ -107,10 +108,10 @@ enum EnergyLogic {
     }
 
     static func reading(from window: RateLimitWindow?) -> EnergyReading {
-        guard let window else { return .unavailable }
+        guard let window, window.usedPercent.isFinite, (0...100).contains(window.usedPercent) else { return .unavailable }
         return EnergyReading(
             remainingPercent: remainingPercent(fromUsedPercent: window.usedPercent),
-            resetsAt: window.resetsAt.map(Date.init(timeIntervalSince1970:))
+            resetsAt: window.resetsAt.flatMap { $0.isFinite && abs($0) < 253_402_300_800 ? Date(timeIntervalSince1970: $0) : nil }
         )
     }
 
@@ -234,9 +235,11 @@ enum EnergyLogic {
 
     static func shortResetText(until reset: Date?, now: Date = .now) -> String {
         guard let reset else { return "重置时间未知" }
-        let seconds = max(0, Int(reset.timeIntervalSince(now).rounded()))
-        if seconds < 48 * 60 * 60 { return "约\(seconds / 3_600)小时" }
-        return "约\(max(1, Int(ceil(Double(seconds) / 86_400))))天后重置"
+        let interval = reset.timeIntervalSince(now)
+        guard interval.isFinite, interval > 0 else { return "恢复待确认" }
+        if interval < 3_600 { return "约\(max(1, Int(ceil(interval / 60))))分钟" }
+        if interval < 48 * 3_600 { return "约\(Int(ceil(interval / 3_600)))小时" }
+        return "约\(Int(ceil(min(interval / 86_400, 3_650_000))))天后重置"
     }
 
     static func windowDurationText(_ minutes: Int?) -> String {

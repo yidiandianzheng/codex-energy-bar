@@ -22,11 +22,11 @@ struct CompactRadarButton: View {
                             .font(EnergyTypography.Mini.caption)
                             .monospacedDigit()
                             .foregroundStyle(Color.secondary)
-                            .lineLimit(1).minimumScaleFactor(0.85)
+                            .lineLimit(1).minimumScaleFactor(1)
                     } else {
                         Image(systemName: "dot.radiowaves.left.and.right").font(EnergyTypography.Mini.caption)
                         Text(snapshot?.compactText(now: context.date) ?? (loading ? "重置雷达 · 同步中" : "重置雷达 · 暂无数据"))
-                            .font(EnergyTypography.Mini.label).lineLimit(1).minimumScaleFactor(0.85)
+                            .font(EnergyTypography.Mini.label).lineLimit(1).minimumScaleFactor(1)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right").font(EnergyTypography.Icon.tiny)
@@ -38,7 +38,7 @@ struct CompactRadarButton: View {
             }
             .buttonStyle(.plain).onHover { hovered = $0 }
             .background(CompactActionRegion(target: .radar))
-            .help("单击查看重置消息与预测依据，按住可拖动。时间为北京时间；概率至少 90% 且有明确预告时刻才显示倒计时，实际到账仍需确认。")
+            .help("单击查看重置消息与预测依据，按住可拖动。时间为北京时间；来源预告与概率独立，实际到账以账户额度为准。")
             .accessibilityLabel("查看重置雷达与预测依据")
             .accessibilityValue(snapshot?.compactText(now: context.date) ?? "暂无数据")
         }

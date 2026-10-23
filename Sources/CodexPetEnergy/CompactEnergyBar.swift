@@ -1,11 +1,12 @@
 import SwiftUI
 
 struct CompactEnergyBar: View {
-    let limits: [QuotaLimitReading]
-    let quotaError: String?
-    let projectError: String?
+    let readings: [BalanceReading]
+    let advice: UsageAdvice
     let todayTokens: Int?
-    let showQuota: () -> Void
+    let projectError: String?
+    let showAccount: (String) -> Void
+    let showAccounts: () -> Void
     let showProjects: () -> Void
 
     var radarSnapshot: ResetRadarSnapshot? = nil
@@ -15,17 +16,42 @@ struct CompactEnergyBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 2) {
+            // Row 1: one cell per account (Codex first), tap to open its page.
+            HStack(spacing: 0) {
                 PanelDragMark()
-                CompactQuotaButton(limits: limits, error: quotaError, action: showQuota)
-                Rectangle().fill(EnergyVisualStyle.strongHairline)
-                    .frame(width: 0.5, height: 24).accessibilityHidden(true)
-                CompactComputeButton(todayTokens: todayTokens, error: projectError, action: showProjects)
+                ForEach(Array(readings.enumerated()), id: \.element.id) { index, reading in
+                    if index > 0 {
+                        Rectangle().fill(EnergyVisualStyle.hairline)
+                            .frame(width: 0.5, height: 40)
+                            .accessibilityHidden(true)
+                    }
+                    CompactAccountCell(
+                        reading: reading,
+                        isRecommended: advice.recommendedID == reading.id,
+                        target: .account(reading.id),
+                        action: { showAccount(reading.id) }
+                    )
+                }
             }
             .padding(.horizontal, 4).padding(.vertical, 3)
-            .frame(maxWidth: .infinity).frame(height: 44)
+            .frame(maxWidth: .infinity).frame(height: EnergyPanelLayout.compactAccountRowHeight)
+
+            // Row 2: local recommendation + today's Token.
+            HStack(spacing: 0) {
+                CompactAdviceButton(advice: advice, action: showAccounts)
+                Rectangle().fill(EnergyVisualStyle.hairline)
+                    .frame(width: 0.5, height: 11)
+                    .accessibilityHidden(true)
+                CompactTokenButton(todayTokens: todayTokens, error: projectError, action: showProjects)
+                    .frame(width: 94)
+            }
+            .frame(height: 22)
+            .overlay(alignment: .top) {
+                Rectangle().fill(EnergyVisualStyle.hairline).frame(height: 0.5).padding(.horizontal, 8)
+            }
+
             CompactRadarButton(snapshot: radarSnapshot, loading: radarLoading, action: showRadar)
-                .frame(height: 18)
+                .frame(height: 22)
                 .overlay(alignment: .top) { Rectangle().fill(EnergyVisualStyle.hairline).frame(height: 0.5).padding(.horizontal, 8) }
             if showsCountdown {
                 CompactCountdownButton(snapshot: radarSnapshot, action: showRadar)

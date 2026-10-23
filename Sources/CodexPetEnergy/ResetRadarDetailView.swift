@@ -37,7 +37,17 @@ struct ResetRadarDetailView: View {
                         .font(EnergyTypography.Detail.section).foregroundStyle(.secondary)
                 }
             }
-            if snapshot.isAveraged(now: now) {
+            if snapshot.commitmentProbability(now: now) != nil {
+                Text("codex-reset.com 发布 Tibo 承诺窗口的投票预测：\(snapshot.commitmentWindowDescription(now: now) ?? "来源未给出截止时间")。")
+                    .font(EnergyTypography.Detail.body)
+                Text("主数字采用该站公开的承诺信号；Codex Resets 的来源预告只说明时间，实际到账以账户额度为准。")
+                    .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
+            } else if snapshot.usesOfficialConfirmation(now: now) {
+                Text("Codex Resets 已发布额度重置预告。")
+                    .font(EnergyTypography.Detail.body)
+                Text("来源预告与概率独立；实际到账以账户额度为准。")
+                    .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
+            } else if snapshot.isAveraged(now: now) {
                 Text("两站有效的未来 24 小时概率各占 50%，取算术平均。")
                     .font(EnergyTypography.Detail.body)
                 Text("综合参考值由本机计算，未经过校准，不代表任一站点的原始预测。")
@@ -56,7 +66,7 @@ struct ResetRadarDetailView: View {
             } else if snapshot.primaryIsFresh(now: now) {
                 Text("Codex Resets 已同步，当前没有有效的重置预警。")
                     .font(EnergyTypography.Detail.body)
-                Text(snapshot.primary?.data.scheduled_reset == nil
+                Text(snapshot.officialConfirmation(now: now) == nil
                          ? "暂无下一次概率或预告时间；最新重置消息可在下方查看。"
                          : "已发布的预告时间见下方；概率未提供时不显示倒计时。")
                     .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
@@ -93,22 +103,38 @@ struct ResetRadarDetailView: View {
             HStack {
                 SourceLink("Codex Resets", destination: ResetRadarSources.primaryURL)
                 Spacer()
-                Text(sourceValue(snapshot.announcementProbability(now: now)))
+                Text(snapshot.usesOfficialConfirmation(now: now)
+                     ? "来源已预告" : sourceValue(snapshot.announcementProbability(now: now)))
             }.font(EnergyTypography.Detail.caption)
             Text("来源更新：\(ResetRadarSources.beijing(ResetRadarSources.date(snapshot.primary?.meta.generated_at))) · 北京时间")
                 .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
             HStack {
                 SourceLink("codex-reset.com", destination: ResetReferenceForecast.pageURL)
                 Spacer()
-                Text(sourceValue(snapshot.referenceProbability(now: now)))
+                Text(sourceValue(snapshot.referenceHeadlineProbability(now: now)))
             }.font(EnergyTypography.Detail.caption)
             Text("来源更新：\(ResetRadarSources.beijing(ResetRadarSources.date(snapshot.reference?.updated_at))) · 北京时间")
                 .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
-            if snapshot.reference != nil, !snapshot.referenceIsFresh(now: now) {
+            if snapshot.commitmentProbability(now: now) != nil {
+                let pace24 = snapshot.referenceProbability(now: now)
+                let pace48 = snapshot.referenceProbability48h(now: now)
+                if pace24 != nil || pace48 != nil {
+                    Text("节奏模型参考：24h \(sourceValue(pace24))" + (pace48.map { " · 48h " + sourceValue($0) } ?? "") + "；仅作趋势参考，不参与承诺预测。")
+                        .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
+                }
+            }
+            if snapshot.commitmentProbability(now: now) != nil {
+                Text("主数字来自 codex-reset.com 的公开承诺信号；预告时间来自 Codex Resets，两者相互独立。")
+                    .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
+            } else if snapshot.usesOfficialConfirmation(now: now) {
+                Text("预告时间来自 Codex Resets；codex-reset.com 的 24 小时数值独立列示，属于节奏模型参考。")
+                    .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
+            } else if snapshot.reference != nil, !snapshot.referenceIsFresh(now: now) {
                 Text("参考站读数已过期、数值无效或尚未反映最新重置，未参与计算。")
                     .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
             }
-            if snapshot.announcementProbability(now: now) != nil, snapshot.referenceProbability(now: now) != nil,
+            if snapshot.commitmentProbability(now: now) == nil,
+               snapshot.announcementProbability(now: now) != nil, snapshot.referenceProbability(now: now) != nil,
                !snapshot.announcementIs24h(now: now) {
                 Text("两站预测窗口不同，分别列示；主数字采用 Codex Resets，不跨窗口平均。")
                     .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
@@ -132,7 +158,7 @@ struct ResetRadarDetailView: View {
                 Text("主站状态暂未同步，以下记录不代表当前预告。")
                     .font(EnergyTypography.Detail.caption).foregroundStyle(EnergyVisualStyle.warningAccent)
             }
-            if let scheduled = snapshot.primary?.data.scheduled_reset {
+            if let scheduled = snapshot.officialConfirmation(now: now) {
                 RadarMessageRow(title: scheduled.reset_type == "banked" ? "重置卡预告" : "额度重置预告",
                     date: scheduled.announced_at, text: scheduled.text, translation: nil,
                     url: scheduled.source.url, explanation: snapshot.scheduleText(now: now))
@@ -157,21 +183,36 @@ struct ResetRadarDetailView: View {
     private func forecastReasons(_ snapshot: ResetRadarSnapshot, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("预警依据").font(EnergyTypography.Detail.section)
+            if let signal = snapshot.commitmentSignal(now: now) {
+                Text("codex-reset.com Tibo 承诺预测 \(sourceValue(signal.percent))")
+                    .font(EnergyTypography.Detail.label)
+                Text("来源对已发布承诺窗口的投票预测：\(snapshot.commitmentWindowDescription(now: now) ?? "来源未给出截止时间")。该数值由来源发布，本应用只读取并展示，未做校准。")
+                    .font(EnergyTypography.Detail.body).foregroundStyle(.secondary)
+            }
             if let watch = snapshot.activeWatch(now: now) {
                 RadarMessageRow(title: "Codex Resets 预警依据", date: watch.observed_at,
                     text: watch.text, translation: nil, url: watch.source.url, explanation: nil)
             }
             if snapshot.referenceIsFresh(now: now) {
-                SourceLink("codex-reset.com 参考预测 ↗", destination: ResetReferenceForecast.pageURL)
+                SourceLink("codex-reset.com 节奏模型 ↗", destination: ResetReferenceForecast.pageURL)
                     .font(EnergyTypography.Detail.label)
-                Text("采用该站公开接口中与网页一致的未来 24 小时展示概率，包含该站对公开信号的判断。")
+                let pace24 = snapshot.referenceProbability(now: now)
+                let pace48 = snapshot.referenceProbability48h(now: now)
+                Text("节奏模型：24h \(sourceValue(pace24))" + (pace48.map { " · 48h " + sourceValue($0) } ?? "")
+                     + (snapshot.commitmentProbability(now: now) != nil
+                        ? "；仅作趋势参考，主数字采用该站的承诺预测。"
+                        : "；采用该站公开接口中的网页展示值。"))
                     .font(EnergyTypography.Detail.body).foregroundStyle(.secondary)
                 if snapshot.reference?.confidence == "low" {
                     Text("来源置信度：低；属于实验性预测。")
                         .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
                 }
+            } else if snapshot.commitmentProbability(now: now) != nil {
+                SourceLink("codex-reset.com 承诺信号 ↗", destination: ResetReferenceForecast.pageURL)
+                    .font(EnergyTypography.Detail.label)
             }
-            if snapshot.activeWatch(now: now) == nil, !snapshot.referenceIsFresh(now: now) {
+            if snapshot.activeWatch(now: now) == nil, !snapshot.referenceIsFresh(now: now),
+               snapshot.commitmentProbability(now: now) == nil {
                 Text("两站当前都没有有效预测依据；缺失或过期读数不按 0% 处理。")
                     .font(EnergyTypography.Detail.body).foregroundStyle(.secondary)
             }

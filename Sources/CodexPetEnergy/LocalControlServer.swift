@@ -63,7 +63,7 @@ final class LocalControlServer {
         let fd = try makeSocket()
         defer { close(fd) }
         guard address({ connect(fd, $0, $1) }) == 0 else {
-            throw CLIError.message("算力条未运行或 CLI 不可用，请先启动已安装应用")
+            throw CLIError.message("算力环未运行或 CLI 不可用，请先启动已安装应用")
         }
         var uid: uid_t = 0
         var gid: gid_t = 0

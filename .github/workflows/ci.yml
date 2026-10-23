@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-and-self-test:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -25,3 +25,16 @@ jobs:
 
       - name: Build release
         run: swift build -c release
+
+      - name: RPC and source regression tests
+        run: |
+          ./scripts/test-rpc.sh
+          ./scripts/test-balance.sh
+          ./scripts/test-reliability.sh
+          ./scripts/test-project-usage.sh
+
+      - name: UI style and rendered layout checks
+        run: |
+          ./scripts/check-ui-style.sh
+          ./scripts/test-mini-layout.sh
+          ./scripts/test-dashboard-layout.sh

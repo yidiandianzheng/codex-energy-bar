@@ -5,7 +5,10 @@ enum TokenFormatting {
         let magnitude: Double
         let suffix: String
 
-        if value >= 100_000_000 {
+        if value >= 1_000_000_000_000 {
+            magnitude = Double(value) / 1_000_000_000_000
+            suffix = "万亿"
+        } else if value >= 100_000_000 {
             magnitude = Double(value) / 100_000_000
             suffix = "亿"
         } else if value >= 10_000 {

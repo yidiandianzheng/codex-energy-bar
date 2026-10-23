@@ -2,8 +2,13 @@ import CoreGraphics
 
 enum EnergyPanelLayout {
     static let expandedSize = CGSize(width: 420, height: 500)
-    static let compactBaseSize = CGSize(width: 208, height: 62)
+    /// Four account cells plus the drag mark. Wide enough for "186.8" and
+    /// "¥35.9" at the 20 pt headline without shrinking the type.
+    static let compactBaseSize = CGSize(width: 320, height: 110)
     static let countdownRowHeight: CGFloat = 22
+    /// Account row: title + headline + quota-window line, with enough slack
+    /// that scaled rendering never rounds the hit regions past the window.
+    static let compactAccountRowHeight: CGFloat = 66
 
     static func compactBaseSize(showsCountdown: Bool) -> CGSize {
         CGSize(width: compactBaseSize.width, height: compactBaseSize.height + (showsCountdown ? countdownRowHeight : 0))

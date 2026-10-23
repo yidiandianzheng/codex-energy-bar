@@ -2,6 +2,9 @@ import SwiftUI
 
 struct ProjectUsageContent: View {
     let summary: ProjectUsageDaySummary
+    var codexTokens: Int? = nil
+    var accountReadings: [BalanceReading] = []
+    var todayUsage: TodayUsageSnapshot = .empty
     @State<Bool> private var showAll = false
     @State<String?> private var selectedID = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -13,9 +16,10 @@ struct ProjectUsageContent: View {
                 .transition(.opacity)
         } else {
             VStack(spacing: 14) {
-                ComputeSummaryCard(summary: summary)
+                AccountUsageGrid(codexTokens: codexTokens ?? summary.allProjectTotals.totalTokens,
+                                 readings: accountReadings, todayUsage: todayUsage)
                 HStack {
-                    Text("项目用量").font(EnergyTypography.Detail.section)
+                    Text("今日项目用量").font(EnergyTypography.Detail.section)
                     Spacer()
                     if summary.projects.count > 5 {
                         Button(showAll ? "前 5 名" : "全部 \(summary.projects.count) 个") { showAll.toggle() }

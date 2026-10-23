@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A noninteractive layout marker. The SwiftUI Button retains keyboard/AX actions.
 struct CompactActionRegion: NSViewRepresentable {
-    let target: EnergyPanelMode
+    let target: CompactActionTarget
 
     func makeNSView(context: Context) -> CompactActionRegionView {
         let view = CompactActionRegionView()

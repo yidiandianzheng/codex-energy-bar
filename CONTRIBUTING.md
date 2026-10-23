@@ -1,6 +1,6 @@
 # 贡献与反馈指南
 
-感谢你帮助改进 Codex 算力条。
+感谢你帮助改进算力环。
 
 ## 提交前先选对入口
 
@@ -28,6 +28,14 @@ git clone https://github.com/yidiandianzheng/codex-energy-bar.git
 cd codex-energy-bar
 swift run CodexPetEnergy --self-test
 swift build -c release
+./scripts/test-rpc.sh
+./scripts/test-balance.sh
+./scripts/test-reliability.sh
+./scripts/test-project-usage.sh
+./scripts/check-ui-style.sh
+./scripts/test-mini-layout.sh
+./scripts/test-mini-interaction.sh
+./scripts/test-dashboard-layout.sh
 ```
 
 ## 代码合并请求
@@ -39,3 +47,5 @@ swift build -c release
 5. 在合并请求中写明改动原因、用户影响和验证命令。
 
 提交合并请求即表示你同意按本仓库的 MIT 开源许可发布贡献。
+
+测试使用临时偏好和演示数据，不需要真实账号。布局脚本实际渲染图片，仍需人工查看并验证点击/拖动；不能仅以尺寸断言替代界面验收。可通过 `CODEX_PET_ENERGY_SDK` 指定已安装 SDK，本轮本地使用 macOS 26.5 SDK；最低支持系统与真实联网需另行验证。构建脚本支持 `CODEX_PET_ENERGY_BUILD_DIR` 和 `CODEX_PET_ENERGY_SWIFT_BUILD_PATH`，便于隔离候选应用与构建缓存。

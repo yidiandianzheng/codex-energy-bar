@@ -108,7 +108,7 @@ final class CodexRateLimitClient {
                 "params": [
                     "clientInfo": [
                         "name": "codex-pet-energy",
-                        "title": "Codex 算力条",
+                        "title": "算力环",
                         "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.0",
                     ],
                     "capabilities": [
@@ -151,10 +151,11 @@ final class CodexRateLimitClient {
             return
         }
 
-        if (message["id"] as? Int) == pendingRequestID && pendingRequestID != nil,
+        if (message["id"] as? Int) == pendingRequestID && pendingRequestID != nil && snapshotRequestPending,
            let result = message["result"],
            let decoded: RateLimitReadResult = decode(result) {
             snapshotRequestPending = false
+            pendingRequestID = nil
             snapshotTimeout?.cancel()
             snapshotTimeout = nil
             reconnectAttempt = 0
@@ -163,19 +164,16 @@ final class CodexRateLimitClient {
             return
         }
 
-        if (message["method"] as? String) == "account/rateLimits/updated",
-           let params = message["params"] as? [String: Any],
-           let snapshotObject = params["rateLimits"],
-           let snapshot: RateLimitSnapshot = decode(snapshotObject) {
-            let merged = latestSnapshot.map { EnergyLogic.mergingSparseUpdate(snapshot, into: $0) }
-                ?? RateLimitReadResult(rateLimits: snapshot, rateLimitsByLimitId: [snapshot.limitId ?? "default": snapshot])
-            latestSnapshot = merged
-            publish(merged)
+        if (message["method"] as? String) == "account/rateLimits/updated" {
+            // Notifications may update only a model bucket, or carry no windows.
+            // Only a complete read may renew the account's last-success time.
+            requestSnapshot()
             return
         }
 
-        if (message["id"] as? Int) == pendingRequestID && pendingRequestID != nil, message["error"] != nil {
+        if (message["id"] as? Int) == pendingRequestID && pendingRequestID != nil && snapshotRequestPending, message["error"] != nil {
             snapshotRequestPending = false
+            pendingRequestID = nil
             snapshotTimeout?.cancel()
             snapshotTimeout = nil
             publishUnavailable()
@@ -191,6 +189,7 @@ final class CodexRateLimitClient {
         let timeout = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.snapshotRequestPending = false
+            self.pendingRequestID = nil
             self.publishUnavailable()
         }
         snapshotTimeout = timeout
@@ -218,6 +217,7 @@ final class CodexRateLimitClient {
             try input.write(contentsOf: line)
         } catch {
             snapshotRequestPending = false
+            pendingRequestID = nil
             snapshotTimeout?.cancel()
             snapshotTimeout = nil
             publishUnavailable()

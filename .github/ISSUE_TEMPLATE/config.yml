@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 使用交流与开放建议
-    url: https://github.com/yidiandianzheng/codex-energy-bar/discussions
+    url: https://github.com/yidiandianzheng/compute-ring/discussions
     about: 不确定是否属于 Bug 或功能需求时，请先发起讨论
   - name: 安全问题
-    url: https://github.com/yidiandianzheng/codex-energy-bar/security/advisories/new
+    url: https://github.com/yidiandianzheng/compute-ring/security/advisories/new
     about: 请通过私密安全报告提交，不要公开泄露敏感信息

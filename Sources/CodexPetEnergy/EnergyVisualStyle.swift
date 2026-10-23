@@ -25,6 +25,8 @@ enum EnergyVisualStyle {
     static let selectedFill = Color.primary.opacity(0.065)
     static let hairline = Color.primary.opacity(0.07)
     static let strongHairline = Color.primary.opacity(0.10)
+    /// Outline for account status chips: shape and weight carry the state, not hue.
+    static let statusChipStroke = Color.primary.opacity(0.16)
 
     static let quickAnimation = Animation.easeOut(duration: 0.14)
     static let contentAnimation = Animation.easeInOut(duration: 0.20)

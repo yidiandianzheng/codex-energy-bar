@@ -14,7 +14,7 @@ struct DashboardHeader: View {
             HStack(spacing: 11) {
                 AppBrandIcon().frame(width: 36, height: 36).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Codex 算力").font(EnergyTypography.Detail.title)
+                    Text("算力环").font(EnergyTypography.Detail.title)
                     HStack(spacing: 5) {
                         Image(systemName: refreshError == nil ? "circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundStyle(.secondary)

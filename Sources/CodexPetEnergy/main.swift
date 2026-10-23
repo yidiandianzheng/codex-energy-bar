@@ -6,24 +6,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let rateLimitClient = CodexRateLimitClient()
     private let projectUsageMonitor = ProjectUsageMonitor()
     private let radarClient = ResetRadarClient()
+    private let balanceMonitor = BalanceMonitor()
+    private let clientMonitor = ClientRunningMonitor()
     private var panelController: EnergyPanelController?
     private let controlServer = LocalControlServer()
+    private var hasClientSnapshot = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Publish the client-state snapshot before the panel first renders, so a
+        // closed 豆包/WorkBuddy never flashes in the compact bar.
+        clientMonitor.onChange = { [weak self] accounts in
+            guard let self else { return }
+            let previous = self.store.runningClientIDs
+            self.store.applyRunningClients(accounts)
+            // Opening a client should refresh its figures now instead of waiting
+            // for the five-minute balance tick. The launch snapshot is skipped
+            // because the initial refresh is already scheduled.
+            let opened = accounts.subtracting(previous)
+            if self.hasClientSnapshot, !opened.isEmpty {
+                self.balanceMonitor.refresh(providers: Set(opened.compactMap(BalanceProvider.init(rawValue:))))
+            }
+            self.hasClientSnapshot = true
+        }
+        clientMonitor.start()
+
         panelController = EnergyPanelController(
             store: store,
+            refreshBalances: { [weak self] in
+                guard let self else { return }
+                self.store.beginBalanceRefresh()
+                self.balanceMonitor.refresh()
+            },
             refreshData: { [weak self] in
                 guard let self else { return }
-                if self.store.mode == .radar {
-                    self.radarClient.refresh()
-                } else if self.store.mode == .projects {
+                let request = self.store.refreshRequest
+                if request.radar { self.radarClient.refresh() }
+                if request.projects {
                     self.store.beginProjectRefresh()
                     self.projectUsageMonitor.refresh(force: true)
-                } else {
+                }
+                if request.codex {
                     self.store.beginRefresh()
                     self.rateLimitClient.refresh()
                 }
+                if !request.balances.isEmpty { self.balanceMonitor.refresh(providers: request.balances) }
             }
         )
 
@@ -40,10 +68,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.store.applyProjects(summary)
         }
         projectUsageMonitor.onFailure = { [weak self] in self?.store.markProjectsUnavailable() }
+        balanceMonitor.onRefreshing = { [weak self] ids in self?.store.setRefreshingBalances(ids) }
+        balanceMonitor.onReading = { [weak self] reading in self?.store.applyBalance(reading) }
+        balanceMonitor.onFinished = { [weak self] in self?.store.finishBalanceRefresh() }
         store.beginRefresh()
         store.beginProjectRefresh()
+        store.beginBalanceRefresh()
         rateLimitClient.start()
         projectUsageMonitor.start()
+        balanceMonitor.start()
         do {
             try controlServer.start { [weak self] request in
                 self?.panelController?.control(request) ?? ["ok": false, "error": "窗口未就绪"]
@@ -53,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         radarClient.stop()
+        balanceMonitor.stop()
+        clientMonitor.stop()
         controlServer.stop()
         rateLimitClient.stop()
         projectUsageMonitor.stop()

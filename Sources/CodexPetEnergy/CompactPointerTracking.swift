@@ -3,7 +3,7 @@ import Foundation
 /// Coordinates are screen points, independent of the panel's visual scale.
 struct CompactPointerTracking {
     let start: CGPoint
-    let target: EnergyPanelMode?
+    let target: CompactActionTarget?
     private(set) var isDragging = false
 
     mutating func update(to point: CGPoint) {
@@ -12,7 +12,7 @@ struct CompactPointerTracking {
         }
     }
 
-    mutating func finish(at point: CGPoint, target releaseTarget: EnergyPanelMode?) -> EnergyPanelMode? {
+    mutating func finish(at point: CGPoint, target releaseTarget: CompactActionTarget?) -> CompactActionTarget? {
         update(to: point)
         return !isDragging && target == releaseTarget ? target : nil
     }

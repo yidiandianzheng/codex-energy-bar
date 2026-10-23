@@ -13,10 +13,12 @@ struct EnergyPanelView: View {
         let scale = CompactPanelSize(rawValue: sizeLevel)?.scale ?? 1
         ZStack(alignment: .topLeading) {
             if store.mode == .compact {
-                CompactEnergyBar(limits: store.quotaLimits, quotaError: store.quotaRefreshError,
-                    projectError: store.projectRefreshError,
+                CompactEnergyBar(readings: store.compactBalanceReadings, advice: store.compactAdvice,
                     todayTokens: store.hasLoadedProjects ? store.projectSummary.allProjectTotals.totalTokens : nil,
-                    showQuota: { store.setMode(.quota) }, showProjects: { store.setMode(.projects) },
+                    projectError: store.projectRefreshError,
+                    showAccount: { store.activate(.account($0)) },
+                    showAccounts: { store.setMode(.balance) },
+                    showProjects: { store.setMode(.projects) },
                     radarSnapshot: store.radarSnapshot, radarLoading: store.isRefreshingRadar,
                     showsCountdown: store.showsResetCountdown,
                     showRadar: { store.setMode(.radar) })

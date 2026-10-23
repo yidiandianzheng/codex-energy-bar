@@ -7,12 +7,17 @@ final class ProjectUsageMonitor {
 
     private let queue = DispatchQueue(label: "codex.pet.energy.project-usage", qos: .utility)
     private let roots: [URL]
+    private let fileManager: FileManager
+    private let fileReadObserver: ((URL, UInt64, Int) -> Void)?
     private var timer: DispatchSourceTimer?
     private var cachedSessions: [String: ProjectUsageFileCache] = [:]
     private var cachedDayStart: Date?
 
-    init(roots: [URL] = ProjectUsageMonitor.defaultRoots) {
+    init(roots: [URL] = ProjectUsageMonitor.defaultRoots, fileManager: FileManager = .default,
+         fileReadObserver: ((URL, UInt64, Int) -> Void)? = nil) {
         self.roots = roots.map { $0.resolvingSymlinksInPath() }
+        self.fileManager = fileManager
+        self.fileReadObserver = fileReadObserver
     }
 
     func start() {
@@ -34,7 +39,6 @@ final class ProjectUsageMonitor {
     }
 
     private func refreshOnQueue(force: Bool = false) {
-        scanFailed = false
         let summary = readTodayUsingCache(now: Date(), force: force)
         let failed = scanFailed
         DispatchQueue.main.async { [weak self] in
@@ -42,56 +46,52 @@ final class ProjectUsageMonitor {
         }
     }
 
-    private func readTodayUsingCache(now: Date, force _: Bool) -> ProjectUsageDaySummary {
+    // Queue-confined in production; synchronous access permits isolated fixture
+    // tests without starting a timer, main run loop, or reading the default roots.
+    func readTodayUsingCache(now: Date, force: Bool = false) -> ProjectUsageDaySummary {
+        scanFailed = false
         let start = ProjectUsageLogic.startOfDay(containing: now)
-        if cachedDayStart != start {
+        if force || cachedDayStart != start {
             cachedDayStart = start
             cachedSessions.removeAll()
         }
-
+        var visited: Set<String> = []
         var uniqueSessions: [String: ProjectUsageSession] = [:]
         for unresolvedRoot in roots {
             let root = unresolvedRoot.resolvingSymlinksInPath()
-            guard FileManager.default.fileExists(atPath: root.path) else { continue }
-            guard let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles],
+            guard fileManager.fileExists(atPath: root.path) else { continue }
+            guard let enumerator = fileManager.enumerator(
+                at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles],
                 errorHandler: { [weak self] _, _ in self?.scanFailed = true; return true }
             ) else { scanFailed = true; continue }
 
             for case let file as URL in enumerator {
-                guard file.pathExtension == "jsonl",
-                      let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]),
-                      values.isRegularFile == true,
-                      let modified = values.contentModificationDate,
-                      modified >= start
-                else { continue }
-
-                guard FileManager.default.isReadableFile(atPath: file.path) else {
+                guard file.pathExtension == "jsonl" else { continue }
+                guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey]) else {
                     scanFailed = true
                     continue
                 }
-                let size = values.fileSize ?? 0
-                let cacheKey = file.path
-                let session: ProjectUsageSession?
-                if let cached = cachedSessions[cacheKey],
-                   cached.modified == modified,
-                   cached.size == size {
-                    session = cached.session
-                } else {
-                    let updated = Self.readSessionFile(
-                        file,
-                        modified: modified,
-                        size: size,
-                        cached: cachedSessions[cacheKey],
-                        now: now
-                    )
-                    cachedSessions[cacheKey] = updated
-                    session = updated.session
+                guard values.isRegularFile == true else { continue }
+                guard let snapshot = ProjectUsageFileSnapshot.read(file) else {
+                    scanFailed = true
+                    continue
                 }
-
-                guard let session else { continue }
+                // Old sessions can contain today's appended events. Their mtime
+                // advances on append; unchanged historical files need no parsing.
+                guard snapshot.modified >= start else { continue }
+                let key = file.path
+                guard visited.insert(key).inserted else { continue }
+                let cached = cachedSessions[key]
+                let updated: ProjectUsageFileCache
+                if let cached, cached.succeeded, cached.snapshot == snapshot {
+                    updated = cached
+                } else {
+                    updated = Self.readSessionFile(file, snapshot: snapshot, cached: cached,
+                                                   now: now, observer: fileReadObserver)
+                    cachedSessions[key] = updated
+                }
+                if !updated.succeeded { scanFailed = true }
+                guard let session = updated.session else { continue }
                 if let existing = uniqueSessions[session.id] {
                     if session.totals.totalTokens > existing.totals.totalTokens
                         || session.lastActivity > existing.lastActivity {
@@ -102,11 +102,10 @@ final class ProjectUsageMonitor {
                 }
             }
         }
+        cachedSessions = cachedSessions.filter { visited.contains($0.key) }
         let sessions = Array(uniqueSessions.values)
-        return ProjectUsageDaySummary(
-            projects: ProjectUsageLogic.aggregate(sessions),
-            sessionSwitchCount: ProjectUsageLogic.sessionSwitchCount(sessions)
-        )
+        return ProjectUsageDaySummary(projects: ProjectUsageLogic.aggregate(sessions),
+                                      sessionSwitchCount: ProjectUsageLogic.sessionSwitchCount(sessions))
     }
 
     static var defaultRoots: [URL] {
@@ -115,124 +114,68 @@ final class ProjectUsageMonitor {
     }
 
     static func readToday(from roots: [URL], now: Date, fileManager: FileManager = .default) -> ProjectUsageDaySummary {
-        var uniqueSessions: [String: ProjectUsageSession] = [:]
-        let start = ProjectUsageLogic.startOfDay(containing: now)
-
-        for unresolvedRoot in roots {
-            let root = unresolvedRoot.resolvingSymlinksInPath()
-            guard let enumerator = fileManager.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            for case let file as URL in enumerator {
-                guard file.pathExtension == "jsonl",
-                      let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
-                      values.isRegularFile == true,
-                      let modified = values.contentModificationDate,
-                      modified >= start
-                else { continue }
-
-                let cache = readSessionFile(
-                    file,
-                    modified: modified,
-                    size: values.fileSize ?? 0,
-                    cached: nil,
-                    now: now
-                )
-                guard let session = cache.session else { continue }
-
-                if let existing = uniqueSessions[session.id] {
-                    if session.totals.totalTokens > existing.totals.totalTokens
-                        || session.lastActivity > existing.lastActivity {
-                        uniqueSessions[session.id] = session
-                    }
-                } else {
-                    uniqueSessions[session.id] = session
-                }
-            }
-        }
-        let sessions = Array(uniqueSessions.values)
-        return ProjectUsageDaySummary(
-            projects: ProjectUsageLogic.aggregate(sessions),
-            sessionSwitchCount: ProjectUsageLogic.sessionSwitchCount(sessions)
-        )
+        let monitor = ProjectUsageMonitor(roots: roots, fileManager: fileManager)
+        return monitor.readTodayUsingCache(now: now, force: true)
     }
 
     static func parseSession(_ text: String, fallbackID: String, now: Date) -> ProjectUsageSession? {
         let start = ProjectUsageLogic.startOfDay(containing: now)
         var accumulator = ProjectUsageSessionAccumulator(fallbackID: fallbackID)
-
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard line.contains("session_meta") || line.contains("token_count"),
-                  let data = line.data(using: .utf8)
-            else { continue }
+            guard let data = line.data(using: .utf8) else { continue }
             accumulator.consume(data, startOfDay: start)
         }
-
         return accumulator.makeSession()
     }
 
     private static func readSessionFile(
-        _ file: URL,
-        modified: Date,
-        size: Int,
-        cached: ProjectUsageFileCache?,
-        now: Date
+        _ file: URL, snapshot: ProjectUsageFileSnapshot, cached: ProjectUsageFileCache?,
+        now: Date, observer: ((URL, UInt64, Int) -> Void)?
     ) -> ProjectUsageFileCache {
-        let canContinue = cached.map {
-            $0.size <= size && $0.bytesRead <= UInt64(size)
-        } ?? false
-        var result: ProjectUsageFileCache
-        if canContinue, let cached {
-            result = cached
-        } else {
-            result = ProjectUsageFileCache(
-                fallbackID: file.path,
-                modified: modified,
-                size: size
-            )
-        }
-
-        let start = ProjectUsageLogic.startOfDay(containing: now)
-        if !canContinue {
-            guard let data = try? Data(contentsOf: file, options: .mappedIfSafe) else {
-                return result
+        var empty = ProjectUsageFileCache(fallbackID: file.path)
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return empty }
+        defer { try? handle.close() }
+        do {
+            var canContinue = false
+            if let cached, cached.succeeded, let old = cached.snapshot,
+               snapshot.hasSameIdentity(as: old), snapshot.size > old.size,
+               cached.bytesRead == UInt64(old.size) {
+                // Check both old boundaries, including the pending partial line.
+                // The main read still starts exactly at the old byte offset.
+                let prefix = try handle.read(upToCount: cached.prefix.count) ?? Data()
+                try handle.seek(toOffset: cached.bytesRead - UInt64(cached.suffix.count))
+                let suffix = try handle.read(upToCount: cached.suffix.count) ?? Data()
+                canContinue = prefix == cached.prefix && suffix == cached.suffix
             }
+            var result = canContinue ? cached! : empty
+            let offset = result.bytesRead
+            try handle.seek(toOffset: offset)
+            let data = try handle.read(upToCount: snapshot.size - Int(offset)) ?? Data()
+            observer?(file, offset, data.count)
+            guard data.count == snapshot.size - Int(offset) else { return empty }
+            var buffer = result.pendingLine
+            buffer.append(data)
             result.pendingLine = result.accumulator.consumeCompleteJSONLines(
-                in: data,
-                startOfDay: start,
+                in: buffer, startOfDay: ProjectUsageLogic.startOfDay(containing: now),
                 includesSessionMetadata: true
             )
-            result.bytesRead = UInt64(data.count)
-            result.modified = modified
-            result.size = size
-            return result
-        }
-
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return result }
-        defer { try? handle.close() }
-
-        do {
-            try handle.seek(toOffset: result.bytesRead)
-            let appended = try handle.readToEnd() ?? Data()
-            var buffer = result.pendingLine
-            buffer.append(appended)
-            result.pendingLine = result.accumulator.consumeCompleteJSONLines(
-                in: buffer,
-                startOfDay: start,
-                includesSessionMetadata: result.bytesRead == 0
-            )
-            result.bytesRead = try handle.offset()
-            result.modified = modified
-            result.size = size
+            result.bytesRead = UInt64(snapshot.size)
+            let sampleCount = min(snapshot.size, 4096)
+            try handle.seek(toOffset: 0)
+            result.prefix = try handle.read(upToCount: sampleCount) ?? Data()
+            try handle.seek(toOffset: UInt64(snapshot.size - sampleCount))
+            result.suffix = try handle.read(upToCount: sampleCount) ?? Data()
+            // If the file changed during reading, retry next scan rather than
+            // publishing a mixture of two file versions or caching a torn read.
+            guard ProjectUsageFileSnapshot.read(file) == snapshot else { return empty }
+            result.snapshot = snapshot
+            result.succeeded = true
             return result
         } catch {
-            return cached ?? result
+            empty.succeeded = false
+            return empty
         }
     }
-
 }
 
 struct ProjectUsageSession: Equatable {
@@ -247,7 +190,7 @@ struct ProjectUsageDaySummary: Equatable {
     let sessionSwitchCount: Int
 
     var allProjectTotals: ProjectUsageTotals {
-        projects.reduce(.zero) { $0.adding($1.totals) }
+        projects.reduce(.zero) { ProjectUsageMath.adding($0, $1.totals) }
     }
 }
 
@@ -268,14 +211,14 @@ enum ProjectUsageLogic {
                 grouped[session.directory] = ProjectUsageReading(
                     directory: session.directory,
                     projectName: existing.projectName,
-                    totals: existing.totals.adding(session.totals),
+                    totals: ProjectUsageMath.adding(existing.totals, session.totals),
                     lastActivity: max(existing.lastActivity, session.lastActivity)
                 )
             } else {
                 grouped[session.directory] = ProjectUsageReading(
                     directory: session.directory,
                     projectName: name.isEmpty ? session.directory : name,
-                    totals: session.totals,
+                    totals: ProjectUsageMath.adding(.zero, session.totals),
                     lastActivity: session.lastActivity
                 )
             }

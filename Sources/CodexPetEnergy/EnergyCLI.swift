@@ -9,12 +9,12 @@ struct EnergyCLIRequest: Codable {
     static func parse(_ args: [String]) throws -> Self {
         guard let command = args.first else { throw CLIError.message("缺少命令，请使用 --cli help") }
         switch command {
-        case "status", "hide", "refresh":
+        case "status", "hide", "refresh", "snapshot":
             guard args.count == 1 else { throw CLIError.message("该命令不接受额外参数") }
             return Self(command: command)
         case "show":
-            guard args.count == 2, ["compact", "quota", "projects", "radar"].contains(args[1]) else {
-                throw CLIError.message("用法：show compact|quota|projects|radar")
+            guard args.count == 2, ["compact", "quota", "balance", "projects", "radar"].contains(args[1]) else {
+                throw CLIError.message("用法：show compact|quota|balance|projects|radar")
             }
             return Self(command: command, value: args[1])
         case "size":
@@ -52,13 +52,14 @@ enum CLIError: Error, CustomStringConvertible {
 
 enum EnergyCLI {
     static let help = """
-    Codex 算力条本地 CLI（控制已经运行的应用；JSON 输出）
+    算力环本地 CLI（控制已经运行的应用；JSON 输出）
       energyctl status                       查询窗口、额度摘要、雷达状态
-      energyctl show compact|quota|projects|radar
+      energyctl show compact|quota|balance|projects|radar
       energyctl hide                         隐藏浮窗
       energyctl size 1..5                     设置现有五档尺寸
       energyctl move X Y                      移动并保存位置（屏幕逻辑点，左下原点）
       energyctl refresh                      请求刷新当前页（不等待网络完成）
+      energyctl snapshot                     将当前浮窗渲染为 PNG（开发检查用）
       energyctl help
     本地 Unix socket，只允许同一用户访问，无 TCP/HTTP 端口。
     """

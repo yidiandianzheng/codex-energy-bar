@@ -12,10 +12,10 @@ struct EnergyDashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             DashboardHeader(
-                lastUpdated: store.mode == .radar ? store.radarSnapshot?.checkedAt : (store.mode == .projects ? store.lastProjectUpdate : store.lastQuotaUpdate),
+                lastUpdated: lastUpdated,
                 isRefreshing: store.currentPageIsRefreshing,
-                refreshError: store.mode == .radar ? store.radarSnapshot?.errors.first : (store.mode == .projects ? store.projectRefreshError : store.quotaRefreshError),
-                sourceTitle: store.mode == .radar ? "公开重置信号" : (store.mode == .projects ? "本地日志" : "账户额度"),
+                refreshError: refreshError,
+                sourceTitle: sourceTitle,
                 refresh: refresh,
                 showMore: showMore,
                 collapse: collapse
@@ -29,12 +29,35 @@ struct EnergyDashboardView: View {
             .padding(.bottom, 18)
 
             ZStack {
-                if store.mode == .quota {
-                    QuotaDetailPanel(
-                        limits: store.quotaLimits,
+                if store.mode == .balance {
+                    AccountOverviewPanel(
+                        readings: store.allBalanceReadings,
+                        advice: store.balanceAdvice,
+                        todayUsage: store.todayUsage,
+                        lastUpdated: store.lastBalanceUpdate,
+                        refreshError: store.balanceRefreshError,
+                        isLoading: store.isRefreshingBalances,
+                        select: { id in
+                            store.selectAccount(id)
+                            selectMode(.quota)
+                        }
+                    )
+                    .transition(pageTransition)
+                } else if store.mode == .quota {
+                    AccountDetailPanel(
+                        readings: store.allBalanceReadings,
+                        advice: store.balanceAdvice,
+                        todayUsage: store.todayUsage,
+                        quotaLimits: store.quotaLimits,
                         resetCredits: store.resetCredits,
-                        lastUpdated: store.lastQuotaUpdate,
-                        refreshError: store.quotaRefreshError
+                        selectedAccountID: store.selectedAccountID,
+                        select: { store.selectAccount($0) },
+                        quotaLastUpdated: store.lastQuotaUpdate,
+                        quotaRefreshError: store.quotaRefreshError,
+                        balanceLastUpdated: store.lastBalanceUpdate,
+                        balanceRefreshError: store.balanceRefreshError,
+                        quotaIsRefreshing: store.isRefreshing,
+                        balanceIsRefreshing: store.isRefreshingBalances
                     )
                     .transition(pageTransition)
                 } else if store.mode == .radar {
@@ -44,7 +67,10 @@ struct EnergyDashboardView: View {
                     EnergyDetailPanel(
                         summary: store.projectSummary,
                         isLoading: !store.hasLoadedProjects,
-                        error: store.projectRefreshError
+                        error: store.projectRefreshError,
+                        codexTokens: store.hasLoadedProjects ? store.projectSummary.allProjectTotals.totalTokens : nil,
+                        accountReadings: store.allBalanceReadings,
+                        todayUsage: store.todayUsage
                     )
                         .transition(pageTransition)
                 }
@@ -52,6 +78,18 @@ struct EnergyDashboardView: View {
             .animation(pageAnimation, value: store.mode)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var lastUpdated: Date? { store.currentPageLastUpdated }
+    private var refreshError: String? { store.currentPageError }
+
+    private var sourceTitle: String {
+        switch store.mode {
+        case .radar: "公开重置信号"
+        case .projects: "本地日志"
+        case .balance: "本机账户"
+        default: "账户额度"
+        }
     }
 
     private var pageAnimation: Animation {

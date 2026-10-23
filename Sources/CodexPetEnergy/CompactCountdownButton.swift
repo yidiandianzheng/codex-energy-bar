@@ -12,7 +12,7 @@ struct CompactCountdownButton: View {
                     Image(systemName: "timer").font(EnergyTypography.Icon.compact)
                         .foregroundStyle(.secondary)
                     if let target = snapshot?.countdownTarget(now: context.date), target > context.date {
-                        Text("更新倒计时")
+                        Text("来源预告倒计时")
                             .font(EnergyTypography.Mini.label).foregroundStyle(.secondary).fixedSize()
                     }
                     Text(snapshot?.countdownValue(now: context.date) ?? "预告待更新")
@@ -29,7 +29,7 @@ struct CompactCountdownButton: View {
             .buttonStyle(.plain).onHover { hovered = $0 }
             .background(CompactActionRegion(target: .radar))
             .help("按来源预告时刻倒数；单击查看依据，按住拖动窗口。实际到账仍需确认。")
-            .accessibilityLabel("更新倒计时，查看预告依据")
+            .accessibilityLabel("来源预告倒计时，查看预告依据")
             .accessibilityValue(snapshot?.countdownText(now: context.date) ?? "预告待更新")
         }
     }

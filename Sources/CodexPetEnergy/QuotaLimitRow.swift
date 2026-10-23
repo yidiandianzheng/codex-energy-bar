@@ -5,54 +5,34 @@ struct QuotaLimitRow: View {
     let subtitle: String
     let systemImage: String
     let identityColor: Color
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(reading.title).font(EnergyTypography.Detail.section).lineLimit(2)
-                Spacer()
-                Text(subtitle).font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(EnergyVisualStyle.subtleFill, in: Capsule())
-            }
-            HStack(spacing: 20) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(reading.remainingPercent.map(String.init) ?? "—")
-                            .font(EnergyTypography.Detail.heroMetric)
-                        if reading.remainingPercent != nil {
-                            Text("%").font(EnergyTypography.Detail.unit).foregroundStyle(.secondary)
-                        }
-                    }
-                    Text(reading.remainingPercent == nil ? "额度暂不可用" : "剩余可用额度")
-                        .font(EnergyTypography.Detail.body).foregroundStyle(.secondary)
+                    Text(reading.title).font(EnergyTypography.Detail.section)
+                    Text(subtitle).font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
-                ZStack {
-                    Circle().stroke(EnergyVisualStyle.hairline, lineWidth: 7)
-                    Circle().trim(from: 0, to: Double(reading.remainingPercent ?? 0) / 100)
-                        .stroke(EnergyToneStyle.color(for: reading.remainingPercent), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Image(systemName: "bolt.fill")
-                        .font(EnergyTypography.Icon.metric)
-                        .foregroundStyle(EnergyToneStyle.color(for: reading.remainingPercent))
-                }.frame(width: 70, height: 70).padding(.trailing, 4).accessibilityHidden(true)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: reading.remainingPercent)
+                Spacer()
+                Text(reading.remainingPercent.map { "\($0)%" } ?? "—")
+                    .font(EnergyTypography.Detail.gridValue)
+                Text("剩余").font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
             }
-            Divider().overlay(EnergyVisualStyle.hairline)
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "arrow.clockwise").font(EnergyTypography.Detail.body).foregroundStyle(.secondary).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("下次重置").font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
-                    Text(EnergyLogic.compactResetDateText(reading.resetsAt)).font(EnergyTypography.Detail.label.monospacedDigit())
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(EnergyVisualStyle.hairline)
+                    Capsule().fill(Color.primary.opacity(0.7))
+                        .frame(width: proxy.size.width * CGFloat(min(100, max(0, reading.remainingPercent ?? 0))) / 100)
                 }
-                Spacer(minLength: 4)
-                Text(EnergyLogic.shortResetText(until: reading.resetsAt)).font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
-                    .padding(.top, 2)
-            }
-        }.padding(16).energyCardSurface()
+            }.frame(height: 4).accessibilityHidden(true)
+            HStack(alignment: .top) {
+                Text("恢复 \(EnergyLogic.compactResetDateText(reading.resetsAt))")
+                Spacer(minLength: 8)
+                Text(EnergyLogic.shortResetText(until: reading.resetsAt))
+            }.font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 14)
+            .overlay(alignment: .bottom) { Divider() }
             .accessibilityElement(children: .ignore).accessibilityLabel(reading.title)
-            .accessibilityValue("剩余 \(reading.remainingPercent.map { "\($0)%" } ?? "暂不可用")，重置 \(EnergyLogic.compactResetDateText(reading.resetsAt))")
+            .accessibilityValue("剩余 \(reading.remainingPercent.map { "\($0)%" } ?? "暂不可用")，恢复 \(EnergyLogic.compactResetDateText(reading.resetsAt))")
     }
 }

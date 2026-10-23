@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import QuartzCore
 import SwiftUI
-import SwiftUI
 
 @MainActor
 final class EnergyPanelController: NSObject, NSWindowDelegate {
@@ -13,18 +12,21 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
 
     private let store: EnergyStore
     private let refreshData: () -> Void
+    private let refreshBalances: () -> Void
     private let panel: EnergyFloatingPanel
     private var statusItem: NSStatusItem?
     private var modeObserver: AnyCancellable?
     private var countdownObserver: AnyCancellable?
     private var displayedMode: EnergyPanelMode = .compact
     private var suppressAnimations = false
+    private var snapshotPath: String?
     private var refreshHostedContent: (() -> Void)?
     private var compactOrigin: CGPoint?
 
-    init(store: EnergyStore, refreshData: @escaping () -> Void) {
+    init(store: EnergyStore, refreshBalances: @escaping () -> Void, refreshData: @escaping () -> Void) {
         self.store = store
         self.refreshData = refreshData
+        self.refreshBalances = refreshBalances
         panel = EnergyFloatingPanel(
             contentRect: CGRect(origin: .zero, size: EnergyPanelLayout.size(for: .compact, showsCountdown: store.showsResetCountdown)),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -38,7 +40,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             menuProvider: { [weak self] in self?.makeMenu() ?? NSMenu() },
             dragDidEnd: { [weak self] in self?.saveDraggedPosition() },
             isCompact: { [weak store] in store?.mode == .compact },
-            activateCompactTarget: { [weak store] in store?.setMode($0) }
+            activateCompactTarget: { [weak store] in store?.activate($0) }
         )
         panel.contentView = contentView
         refreshHostedContent = { [weak contentView] in contentView?.refreshHostedContent() }
@@ -51,11 +53,15 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
-        panel.title = "Codex 算力条"
+        panel.title = "算力环"
 
         modeObserver = store.$mode
             .dropFirst()
-            .sink { [weak self] mode in self?.resize(for: mode) }
+            .sink { [weak self] mode in
+                guard let self else { return }
+                self.resize(for: mode)
+                if mode == .balance { self.refreshBalancesIfStale() }
+            }
         countdownObserver = store.$showsResetCountdown.dropFirst().sink { [weak self] visible in
             guard let self else { return }
             // Published emits before the store changes. Preserve the compact top edge even
@@ -69,7 +75,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         }
         panel.collapse = { [weak store] in store?.setCompactMode() }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "Codex 算力条")
+        item.button?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "算力环")
         item.button?.target = self
         item.button?.action = #selector(toggleVisibility)
         statusItem = item
@@ -117,6 +123,14 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         setFrameKeepingVisible(frame)
         compactOrigin = panel.frame.origin
         panel.orderFrontRegardless()
+    }
+
+    /// Opening the balance page should show fresh numbers, but repeated mode
+    /// switches must not hammer the sources.
+    private func refreshBalancesIfStale() {
+        guard !store.isRefreshingBalances else { return }
+        if let last = store.lastBalanceUpdate, Date().timeIntervalSince(last) < 60 { return }
+        refreshBalances()
     }
 
     private func resize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil) {
@@ -193,6 +207,8 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             setFrameKeepingVisible(CGRect(origin: CGPoint(x: x, y: y), size: panel.frame.size))
             saveDraggedPosition()
         case "refresh": refreshData()
+        case "snapshot":
+            break
         default: return ["ok": false, "error": "未知命令"]
         }
         if request.command != "status" {
@@ -201,6 +217,11 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             panel.displayIfNeeded()
             CATransaction.flush()
         }
+        if request.command == "snapshot" {
+            panel.contentView?.layoutSubtreeIfNeeded()
+            panel.displayIfNeeded()
+            snapshotPath = renderPanelSnapshot()
+        }
         let frame = panel.frame
         let now = Date()
         let quota: [[String: Any]] = store.quotaLimits.map { reading in
@@ -208,14 +229,51 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             item["remainingPercent"] = reading.remainingPercent.map { $0 as Any } ?? NSNull()
             return item
         }
+        let balances: [[String: Any]] = store.allBalanceReadings.map { reading in
+            var item: [String: Any] = ["id": reading.id, "title": reading.title]
+            // `hidden` means "left out of the compact Mini bar right now", not
+            // "unavailable everywhere": the balance page still lists it.
+            item["hidden"] = store.hiddenBalanceIDs.contains(reading.id)
+            switch reading.state {
+            case .ok:
+                item["state"] = "ok"
+                item["value"] = [reading.unitPrefix, reading.valueText, reading.unitSuffix].compactMap { $0 }.joined()
+                item["caption"] = reading.caption ?? ""
+                item["detail"] = reading.detail ?? ""
+            case .loading:
+                item["state"] = "loading"
+            case .unconfigured(let message):
+                item["state"] = "unconfigured"
+                item["message"] = message
+            case .failed(let message):
+                item["state"] = "failed"
+                item["message"] = message
+            case .stale(let message):
+                item["state"] = "stale"
+                item["value"] = [reading.unitPrefix, reading.valueText, reading.unitSuffix].compactMap { $0 }.joined()
+                item["message"] = message
+            }
+            item["lastSuccessAt"] = reading.updatedAt.map { $0.timeIntervalSince1970 as Any } ?? NSNull()
+            item["lastAttemptAt"] = reading.lastAttemptAt.map { $0.timeIntervalSince1970 as Any } ?? NSNull()
+            return item
+        }
         let radar: [String: Any] = [
             "summary": store.radarSnapshot?.compactText(now: now) ?? "暂无数据",
             "fresh": store.radarSnapshot?.primaryIsFresh(now: now) ?? false,
             "probabilityFresh": store.radarSnapshot?.forecastIsFresh(now: now) ?? false,
+            "probabilityTitle": store.radarSnapshot?.probabilityTitle(now: now) ?? "unknown",
+            "probability": store.radarSnapshot?.probability(now: now).map { $0 as Any } ?? NSNull(),
             "probabilitySource": store.radarSnapshot?.probabilitySourceName(now: now) ?? "unknown",
+            "officialConfirmed": false,
+            "sourceAnnouncement": store.radarSnapshot?.countdownTarget(now: now) != nil,
             "averaged": store.radarSnapshot?.isAveraged(now: now) ?? false,
+            // The source's committed-window signal is its displayed headline;
+            // the 24h/48h cadence values remain separately attributed.
+            "commitmentProbability": store.radarSnapshot?.commitmentProbability(now: now).map { $0 as Any } ?? NSNull(),
+            "commitmentWindow": store.radarSnapshot?.commitmentWindowDescription(now: now).map { $0 as Any } ?? NSNull(),
             "codexResetsProbability": store.radarSnapshot?.announcementProbability(now: now).map { $0 as Any } ?? NSNull(),
             "codexResetProbability": store.radarSnapshot?.referenceProbability(now: now).map { $0 as Any } ?? NSNull(),
+            "codexResetPace48h": store.radarSnapshot?.referenceProbability48h(now: now).map { $0 as Any } ?? NSNull(),
             "codexResetsURL": ResetRadarSources.primaryURL.absoluteString,
             "codexResetURL": ResetReferenceForecast.pageURL.absoluteString,
             "errors": store.radarSnapshot?.errors ?? []
@@ -223,25 +281,55 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         var result: [String: Any] = [
             "ok": true, "schemaVersion": 1,
             "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development",
-            "mode": store.mode.rawValue, "visible": panel.isVisible,
+            "mode": store.mode.rawValue, "selectedAccount": store.selectedAccountID, "visible": panel.isVisible,
             "sizeLevel": CompactPanelSize.load().rawValue,
+            "autoHideInactiveAccounts": store.autoHideInactiveAccounts,
             "frame": ["x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height],
             "coordinateSystem": "macOS screen points, primary screen bottom-left origin",
             "countdownRowVisible": store.showsResetCountdown,
             "refreshing": store.currentPageIsRefreshing,
             "radar": radar,
-            "quota": quota
+            "quota": quota,
+            "balances": balances,
+            "advice": [
+                "headline": store.balanceAdvice.headline,
+                "detail": store.balanceAdvice.detail,
+                "compact": store.balanceAdvice.compactText,
+                "recommended": store.balanceAdvice.recommendedID.map { $0 as Any } ?? NSNull(),
+                "levels": store.balanceAdvice.levels.mapValues { $0.title },
+            ]
         ]
         if request.command == "refresh" { result["refreshRequested"] = true }
+        if let snapshotPath { result["snapshot"] = snapshotPath }
         return result
+    }
+
+    private func renderPanelSnapshot() -> String? {
+        guard let view = panel.contentView else { return nil }
+        guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: representation)
+        guard let data = representation.representation(using: .png, properties: [:]) else { return nil }
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CodexPetEnergy", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("panel-snapshot.png")
+        do {
+            try data.write(to: url)
+            return url.path
+        } catch {
+            return nil
+        }
     }
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        let quotaItem = item("打开额度面板", action: #selector(showQuota))
+        let quotaItem = item("打开账户页", action: #selector(showQuota))
         quotaItem.isEnabled = store.mode != .quota
         menu.addItem(quotaItem)
-        let projectsItem = item("打开今日算力", action: #selector(showProjects))
+        let balanceItem = item("打开总览页", action: #selector(showBalance))
+        balanceItem.isEnabled = store.mode != .balance
+        menu.addItem(balanceItem)
+        let projectsItem = item("打开今日用量", action: #selector(showProjects))
         projectsItem.isEnabled = store.mode != .projects
         menu.addItem(projectsItem)
         let radarItem = item("打开重置雷达", action: #selector(showRadar))
@@ -260,11 +348,16 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             menu.addItem(sizeItem)
         }
         menu.addItem(.separator())
+        let autoHideItem = item("自动隐藏未打开应用的账户", action: #selector(toggleAutoHide))
+        autoHideItem.state = store.autoHideInactiveAccounts ? .on : .off
+        autoHideItem.toolTip = "豆包、WorkBuddy 客户端未运行时，Mini 条不再为它们占位；总览页仍显示全部账户。"
+        menu.addItem(autoHideItem)
+        menu.addItem(item("打开余额配置文件", action: #selector(openBalanceConfig)))
         menu.addItem(item("隐藏浮窗（点击菜单栏图标找回）", action: #selector(hidePanel)))
         menu.addItem(item("恢复默认位置", action: #selector(resetPosition)))
-        menu.addItem(item("关于 Codex 算力条", action: #selector(showAbout)))
+        menu.addItem(item("关于 算力环", action: #selector(showAbout)))
         menu.addItem(.separator())
-        menu.addItem(item("退出算力条", action: #selector(quit)))
+        menu.addItem(item("退出算力环", action: #selector(quit)))
         return menu
     }
 
@@ -279,15 +372,24 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         makeMenu().popUp(positioning: nil, at: CGPoint(x: view.bounds.maxX - 60, y: view.bounds.maxY - 42), in: view)
     }
 
+    @objc private func openBalanceConfig() {
+        guard let url = BalanceConfig.prepareTemplateFile() else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     @objc private func hidePanel() { panel.orderOut(nil) }
     @objc private func toggleVisibility() {
-        if panel.isVisible { panel.orderOut(nil) } else {
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
             panel.orderFrontRegardless()
             if store.mode != .compact { panel.makeKey() }
+            if store.mode == .balance { refreshBalancesIfStale() }
         }
     }
 
     @objc private func showRadar() { store.setMode(.radar) }
+    @objc private func showBalance() { store.setMode(.balance) }
     @objc private func showQuota() { store.setMode(.quota) }
     @objc private func showProjects() { store.setMode(.projects) }
     @objc private func refresh() { refreshData() }
@@ -297,7 +399,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         let bundle = Bundle.main
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
         let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-        let alert = NSAlert(); alert.messageText = "Codex 算力条"; alert.informativeText = "版本 \(version)（构建 \(build)）\n显示账户实际额度与上海时区当天的本地 Token。\n唯一安装位置：~/Applications/Codex算力条.app"; alert.addButton(withTitle: "好"); alert.runModal()
+        let alert = NSAlert(); alert.messageText = "算力环"; alert.informativeText = "版本 \(version)（构建 \(build)）\n显示账户实际额度与上海时区当天的本地 Token。\n唯一安装位置：~/Applications/算力环.app"; alert.addButton(withTitle: "好"); alert.runModal()
     }
 
     @objc private func changeSize(_ sender: NSMenuItem) {
@@ -306,6 +408,11 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         else { return }
         size.save()
         resize(for: store.mode)
+    }
+
+    @objc private func toggleAutoHide() {
+        store.setAutoHideInactiveAccounts(!store.autoHideInactiveAccounts)
+        refreshHostedContent?()
     }
 
     @objc private func resetPosition() {

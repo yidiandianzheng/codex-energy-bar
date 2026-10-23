@@ -23,12 +23,14 @@ import Foundation
             failures.append("control: fixture decode failed"); return
         }
         let snapshot = ResetRadarSnapshot(primary: primary, checkedAt: now, errors: [])
-        let store = EnergyStore()
+        let store = SelfTest.makeStore(now: now)
         store.applyRadar(snapshot)
         expect(store.showsResetCountdown, "eligible snapshot expands countdown row")
-        expect(snapshot.compactScheduleText(now: now)?.hasPrefix("预计") == true, "probability row retains scheduled date")
+        expect(snapshot.compactScheduleText(now: now)?.hasPrefix("来源预告") == true, "probability row retains scheduled date")
         store.updateCountdownVisibility(now: now.addingTimeInterval(301))
-        expect(!store.showsResetCountdown, "expired watch removes row without another network response")
+        expect(store.showsResetCountdown, "an official announcement outlives the watch that carried it")
+        store.updateCountdownVisibility(now: now.addingTimeInterval(1801))
+        expect(!store.showsResetCountdown, "a stale source removes the row without another network response")
         store.applyRadar(snapshot)
         store.applyRadar(ResetRadarSnapshot(checkedAt: now, errors: []))
         expect(!store.showsResetCountdown, "withdrawn schedule removes row")

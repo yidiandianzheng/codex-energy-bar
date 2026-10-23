@@ -61,8 +61,37 @@ check(snapshots.count == 1 && snapshots.first?.rateLimits.primary?.usedPercent =
       "late response for a previous request must be ignored")
 retryClient.stop()
 
+// A model-only notification and a duplicate response must not renew cached account data.
+let sparseServer = try executable("sparse", body: #"""
+count=0
+while IFS= read -r line; do
+    case "$line" in
+      *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+      *'rateLimits'*'read'*)
+        count=$((count + 1))
+        if [ "$count" -eq 1 ]; then
+          printf '%s\n' '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":20}}}}'
+          printf '%s\n' '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":0}}}}'
+          printf '%s\n' '{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"codex_bengalfox","primary":{"usedPercent":0}}}}'
+        else
+          printf '%s\n' '{"id":3,"error":{"message":"offline"}}'
+        fi ;;
+    esac
+done
+"""#)
+let sparseClient = CodexRateLimitClient(executable: sparseServer, timeoutInterval: 1)
+var sparseSnapshots: [RateLimitReadResult] = []
+var sparseFailed = false
+sparseClient.onSnapshot = { sparseSnapshots.append($0) }
+sparseClient.onUnavailable = { sparseFailed = true }
+sparseClient.start()
+check(wait(until: { sparseFailed }), "sparse notification requests a complete read")
+check(sparseSnapshots.count == 1 && sparseSnapshots.first?.rateLimits.primary?.usedPercent == 20,
+      "duplicate responses and model-only notifications cannot refresh cached account quota")
+sparseClient.stop()
+
 if failures.isEmpty {
-    print("RPC regression tests passed: initialization timeout, read timeout, stale response rejection, manual retry recovery")
+    print("RPC regression tests passed: initialization timeout, read timeout, stale/duplicate response rejection, sparse notification refresh, manual retry recovery")
 } else {
     failures.forEach { print("RPC regression failed: \($0)") }
     print((try? String(contentsOf: retryServer.appendingPathExtension("requests"), encoding: .utf8)) ?? "no requests")

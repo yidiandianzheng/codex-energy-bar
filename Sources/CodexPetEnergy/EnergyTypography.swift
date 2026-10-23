@@ -4,20 +4,23 @@ import SwiftUI
 /// Components select a role; new sizes and weights belong here, not in individual views.
 enum EnergyTypography {
     enum Mini {
-        static let caption = Font.system(size: 8)
-        static let label = Font.system(size: 9)
-        static let value = Font.system(size: 19, weight: .semibold, design: .rounded).monospacedDigit()
+        static let caption = Font.system(size: 10)
+        static let label = Font.system(size: 10)
+        static let sub = Font.system(size: 10, design: .rounded).monospacedDigit()
+        static let value = Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
         static let signal = Font.system(size: 12, weight: .bold, design: .rounded).monospacedDigit()
         static let unit = Font.system(size: 12, design: .rounded)
     }
 
     enum Detail {
-        static let caption = Font.system(size: 10)
-        static let body = Font.system(size: 11)
-        static let label = Font.system(size: 11, weight: .medium)
-        static let section = Font.system(size: 12, weight: .semibold)
+        static let caption = Font.system(size: 11)
+        static let body = Font.system(size: 13)
+        static let label = Font.system(size: 13, weight: .medium)
+        static let section = Font.system(size: 13, weight: .semibold)
+        static let chip = Font.system(size: 11, weight: .semibold)
         static let title = Font.system(size: 16, weight: .semibold)
-        static let rowValue = Font.system(size: 12, weight: .bold, design: .rounded).monospacedDigit()
+        static let rowValue = Font.system(size: 15, weight: .bold, design: .rounded).monospacedDigit()
+        static let gridValue = Font.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit()
         static let countdown = Font.system(size: 20, weight: .bold, design: .rounded).monospacedDigit()
         static let metric = Font.system(size: 28, weight: .bold, design: .rounded).monospacedDigit()
         static let heroMetric = Font.system(size: 36, weight: .bold, design: .rounded).monospacedDigit()

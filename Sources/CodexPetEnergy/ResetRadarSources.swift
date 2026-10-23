@@ -22,6 +22,7 @@ enum ResetRadarSources {
         }
         struct Source: Decodable { let url: String? }
         struct Scheduled: Decodable {
+            let status: String?
             let scheduled_for: String?
             let announced_at: String
             let reset_type: String

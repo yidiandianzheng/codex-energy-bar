@@ -6,7 +6,7 @@ final class PanelContentView<Content: View>: NSView {
     private let menuProvider: () -> NSMenu
     private let dragDidEnd: () -> Void
     private let isCompact: () -> Bool
-    private let activateCompactTarget: (EnergyPanelMode) -> Void
+    private let activateCompactTarget: (CompactActionTarget) -> Void
     private var pointerTracking: CompactPointerTracking?
     private var dragWindowOrigin: CGPoint = .zero
     private var trackingCompact = false
@@ -16,7 +16,7 @@ final class PanelContentView<Content: View>: NSView {
         menuProvider: @escaping () -> NSMenu,
         dragDidEnd: @escaping () -> Void,
         isCompact: @escaping () -> Bool,
-        activateCompactTarget: @escaping (EnergyPanelMode) -> Void
+        activateCompactTarget: @escaping (CompactActionTarget) -> Void
     ) {
         hostingView = NSHostingView(rootView: rootView)
         self.menuProvider = menuProvider
@@ -105,8 +105,8 @@ final class PanelContentView<Content: View>: NSView {
         }
     }
 
-    private func compactTarget(at windowPoint: CGPoint) -> EnergyPanelMode? {
-        func find(in view: NSView) -> EnergyPanelMode? {
+    private func compactTarget(at windowPoint: CGPoint) -> CompactActionTarget? {
+        func find(in view: NSView) -> CompactActionTarget? {
             guard !view.isHidden else { return nil }
             if let region = view as? CompactActionRegionView,
                region.bounds.contains(region.convert(windowPoint, from: nil)) {

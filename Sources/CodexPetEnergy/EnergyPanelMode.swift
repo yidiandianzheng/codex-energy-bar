@@ -2,15 +2,18 @@ enum EnergyPanelMode: String, Hashable {
     case compact
     case projects
     case quota
+    case balance
     case radar
 
-    static let dashboardModes: [EnergyPanelMode] = [.quota, .projects, .radar]
+    /// 汇总在前，账户详情其次：先看全局，再点进单个账户。
+    static let dashboardModes: [EnergyPanelMode] = [.balance, .quota, .projects, .radar]
 
     var title: String {
         switch self {
-        case .compact: "Codex 算力条"
-        case .projects: "今日算力"
-        case .quota: "额度"
+        case .compact: "算力环"
+        case .projects: "今日用量"
+        case .quota: "账户"
+        case .balance: "总览"
         case .radar: "重置雷达"
         }
     }
@@ -19,7 +22,8 @@ enum EnergyPanelMode: String, Hashable {
         switch self {
         case .compact: "gauge.with.dots.needle.50percent"
         case .projects: "chart.bar.xaxis"
-        case .quota: "battery.75percent"
+        case .quota: "person.crop.circle"
+        case .balance: "square.grid.2x2"
         case .radar: "dot.radiowaves.left.and.right"
         }
     }

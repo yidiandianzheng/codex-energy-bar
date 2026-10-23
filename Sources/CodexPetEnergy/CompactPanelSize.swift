@@ -26,11 +26,11 @@ enum CompactPanelSize: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .level1: "1档 · 标准字号"
-        case .level2: "2档 · 字号 +8%"
-        case .level3: "3档 · 字号 +16%"
-        case .level4: "4档 · 字号 +24%"
-        case .level5: "5档 · 字号 +32%"
+        case .level1: "1档 · 标准界面"
+        case .level2: "2档 · 界面 +8%"
+        case .level3: "3档 · 界面 +16%"
+        case .level4: "4档 · 界面 +24%"
+        case .level5: "5档 · 界面 +32%"
         }
     }
 

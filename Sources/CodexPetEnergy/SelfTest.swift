@@ -2,10 +2,18 @@ import Foundation
 
 @MainActor
 enum SelfTest {
+    private static var suites: [String] = []
+    static func makeStore(now: Date = .now) -> EnergyStore {
+        let name = "compute-ring.selftest." + UUID().uuidString
+        suites.append(name)
+        return EnergyStore(defaults: UserDefaults(suiteName: name)!, now: now, startsTimers: false)
+    }
     static func run() -> Bool {
+        defer { for name in suites { UserDefaults.standard.removePersistentDomain(forName: name) }; suites = [] }
         var failures: [String] = []
         ResetRadarSelfTest.check(into: &failures)
         ControlSelfTest.check(into: &failures)
+        UpgradeSelfTest.check(into: &failures)
 
         check(EnergyLogic.remainingPercent(fromUsedPercent: 0) == 100, "0% used should leave 100%", into: &failures)
         check(EnergyLogic.remainingPercent(fromUsedPercent: 66) == 34, "66% used should leave 34%", into: &failures)
@@ -55,7 +63,7 @@ enum SelfTest {
             check(credit?.expirationText(now: Date(timeIntervalSince1970: 0)) == "将于 10月30日 02:50（GMT+8）到期", "credit expiration should use GMT+8", into: &failures)
             let merged = EnergyLogic.mergingSparseUpdate(RateLimitSnapshot(limitId: "codex", primary: nil, secondary: nil), into: result)
             check(merged.rateLimitResetCredits == result.rateLimitResetCredits, "quota notifications must preserve reset credits", into: &failures)
-            let store = EnergyStore()
+            let store = makeStore()
             store.apply(result)
             store.markUnavailable()
             check(store.resetCredits == result.rateLimitResetCredits, "refresh failure must preserve reset credits", into: &failures)
@@ -67,6 +75,54 @@ enum SelfTest {
         check(countOnly?.credits == nil && countOnly?.availableCount == 1, "count-only credits must not invent expiry details", into: &failures)
         let noExpiry = RateLimitResetCredit(id: "no-expiry", resetType: "codexRateLimits", status: "available", grantedAt: 0, expiresAt: nil, title: nil, description: nil)
         check(noExpiry.expirationText() == "无到期时间", "null expiration means no expiry", into: &failures)
+
+        // Extra balance sources: parsers, store state and placeholder ordering.
+        check(BalanceFormatting.money("12.3") == "12.30", "money formatting keeps cents", into: &failures)
+        check(BalanceFormatting.credits("195.12000212") == "195.12", "credits formatting rounds", into: &failures)
+        let deepSeekFixture = #"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"6.06","granted_balance":"0.00","topped_up_balance":"6.06"}]}"#
+        check(DeepSeekBalanceParser.reading(from: Data(deepSeekFixture.utf8)).valueText == "6.06",
+              "deepseek balance parsing", into: &failures)
+        let workBuddyFixture = #"{"code":0,"data":{"TotalCredits":"195.12000212","SubscriptionPackageName":"体验版","Packages":[{"CycleTotalCapacity":"500","CycleUsedCapacity":"304.88"}]}}"#
+        check(WorkBuddyBalanceParser.reading(from: Data(workBuddyFixture.utf8)).valueText == "195.12",
+              "workbuddy credit parsing", into: &failures)
+        let doubaoFixture = #"{"code":0,"data":{"window_limit_section":{"window_limit_groups":[{"window_limits":[{"end_time":1792819135023,"used_percent":29,"window_type":2}]}]}}}"#
+        check(DoubaoQuotaParser.reading(from: Data(doubaoFixture.utf8)).valueText == "71",
+              "doubao quota parsing", into: &failures)
+        let codexLimit = QuotaLimitReading(id: "codex-primary", title: "周额度", remainingPercent: 3,
+                                          resetsAt: Date().addingTimeInterval(6 * 86400), windowDurationMins: 10_080)
+        let codexReading = BalanceReading.codex(limits: [codexLimit])
+        check(codexReading.percent == 3 && codexReading.caption == "周额度剩余",
+              "codex joins the balance page with its weekly window", into: &failures)
+        let advisorReadings: [BalanceReading] = [
+            codexReading,
+            BalanceReading(id: "deepseek", title: "DeepSeek", systemImage: "sparkles", valueText: "43.06",
+                           unitPrefix: "¥", unitSuffix: nil, caption: "账户余额", detail: nil, percent: nil,
+                           windows: [], state: .ok, sourceURL: nil, updatedAt: .now, numericValue: 43.06, currency: "CNY"),
+            BalanceReading(id: "doubao", title: "豆包", systemImage: "bubble.left.and.bubble.right",
+                           valueText: "71", unitPrefix: nil, unitSuffix: "%", caption: "近 7 天剩余额度",
+                           detail: nil, percent: 71, windows: [
+                               BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 15, resetAt: Date().addingTimeInterval(3600)),
+                               BalanceWindowReading(id: "D7", title: "近 7 天", remainingPercent: 71, resetAt: Date().addingTimeInterval(3 * 86400)),
+                           ], state: .ok, sourceURL: nil, updatedAt: .now),
+            BalanceReading(id: "workbuddy", title: "WorkBuddy", systemImage: "briefcase", valueText: "195.12",
+                           unitPrefix: nil, unitSuffix: " 积分", caption: "剩余积分", detail: nil, percent: 3,
+                           windows: [], state: .ok, sourceURL: nil, updatedAt: .now),
+        ]
+        let advice = AIUsageAdvisor.advise(readings: advisorReadings)
+        check(advice.recommendedID == "doubao", "advisor prefers a healthy subscription over cash", into: &failures)
+        check(advice.levels["codex"] == .critical && advice.levels["workbuddy"] == .critical,
+              "advisor marks near-empty accounts", into: &failures)
+
+        let balanceStore = makeStore()
+        check(balanceStore.balances.map(\.id) == BalanceProvider.allCases.map(\.id),
+              "balance placeholders follow provider order", into: &failures)
+        balanceStore.beginBalanceRefresh()
+        balanceStore.applyBalance(DeepSeekBalanceParser.reading(from: Data(deepSeekFixture.utf8)))
+        balanceStore.finishBalanceRefresh()
+        check(balanceStore.balances.first { $0.id == "deepseek" }?.state == .ok,
+              "balance store applies readings", into: &failures)
+        check(balanceStore.lastBalanceUpdate != nil && !balanceStore.isRefreshingBalances,
+              "balance refresh finishes", into: &failures)
 
         let overallWindow = RateLimitWindow(usedPercent: 10, windowDurationMins: 10_080, resetsAt: 2_000)
         let legacyShortWindow = RateLimitWindow(usedPercent: 66, windowDurationMins: 300, resetsAt: 1_000)
@@ -141,7 +197,7 @@ enum SelfTest {
             "compact bar should remain smaller than the dashboard",
             into: &failures
         )
-        let modeStore = EnergyStore()
+        let modeStore = makeStore()
         check(!modeStore.hasLoadedProjects, "project loading state should begin unresolved", into: &failures)
         modeStore.applyProjects(ProjectUsageDaySummary(projects: [], sessionSwitchCount: 0))
         check(modeStore.hasLoadedProjects, "first project scan should resolve the loading state", into: &failures)
@@ -162,7 +218,7 @@ enum SelfTest {
         modeStore.applyProjects(ProjectUsageDaySummary(projects: [], sessionSwitchCount: 0))
         check(!modeStore.isRefreshingProjects && modeStore.isRefreshing, "project completion must not finish quota refresh", into: &failures)
         modeStore.markUnavailable()
-        check(TokenFormatting.compact(1_234_500_000_000) == "12345亿", "compact tokens should omit grouping separators", into: &failures)
+        check(TokenFormatting.compact(1_234_500_000_000) == "1.2万亿", "compact tokens should omit grouping separators", into: &failures)
         check(TokenFormatting.exact(27_000_000) == "27,000,000", "exact token counts should preserve grouping", into: &failures)
         check(TokenFormatting.compact(27_000_000) == "2700万", "large token numbers should use Chinese units", into: &failures)
         checkPanelGeometry(into: &failures)
@@ -170,7 +226,7 @@ enum SelfTest {
         checkProjectUsage(into: &failures)
 
         if failures.isEmpty {
-            print("Self-test passed: quota parsing, colors, independent resets, sparse updates, panel geometry, mode behavior, project usage")
+            print("Self-test passed: quota parsing, balance parsing, colors, independent resets, sparse updates, panel geometry, mode behavior, project usage")
             return true
         }
         failures.forEach { print("Self-test failed: \($0)") }
