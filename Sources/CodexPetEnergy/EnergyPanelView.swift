@@ -41,7 +41,9 @@ struct EnergyPanelView: View {
             .frame(width: base.width, height: base.height)
             .scaleEffect(scale, anchor: .topLeading)
             .frame(width: base.width * scale, height: base.height * scale, alignment: .topLeading)
-            .energyPanelSurface(cornerRadius: (store.mode == .compact
-                ? EnergyVisualStyle.compactCornerRadius : EnergyVisualStyle.panelCornerRadius) * scale)
+            .energyPanelSurface(
+                cornerRadius: (store.mode == .compact
+                    ? EnergyVisualStyle.compactCornerRadius : EnergyVisualStyle.panelCornerRadius) * scale,
+                style: store.mode == .compact ? .glance : .panel)
     }
 }
