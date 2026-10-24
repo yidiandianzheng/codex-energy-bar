@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// 账户页：顶部在四个账户之间切换，下方只看选中账户的额度细节。
+/// 账户页：顶部在五个账户之间切换，下方只看选中账户的额度细节。
 ///
 /// - Codex：复用现有额度卡（周窗口/5 小时窗口 + 重置券）。
 /// - 豆包：当前时段与近 7 天两个窗口。
 /// - DeepSeek：余额（无额度周期）。
 /// - WorkBuddy：积分（未运行/读取失败时给出恢复提示）。
+/// - 千问办公：Credits 余额；有套餐总额时显示剩余百分比，否则只显示余额。
 struct AccountDetailPanel: View {
     let readings: [BalanceReading]
     let advice: UsageAdvice
@@ -55,7 +56,7 @@ struct AccountDetailPanel: View {
                         Text(reading.title)
                             .font(EnergyTypography.Detail.caption)
                             .lineLimit(1)
-                            .minimumScaleFactor(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .foregroundStyle(reading.id == selectedAccountID ? Color.primary : Color.secondary)
                     .frame(maxWidth: .infinity, minHeight: 30)
@@ -207,8 +208,11 @@ struct AccountDetailPanel: View {
                     Text(prefix).font(EnergyTypography.Detail.unit).foregroundStyle(.secondary)
                 }
                 Text(reading.valueText ?? "—").font(EnergyTypography.Detail.heroMetric)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 if let suffix = reading.unitSuffix {
                     Text(suffix).font(EnergyTypography.Detail.unit).foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 if let caption = reading.caption {
@@ -286,8 +290,11 @@ struct AccountDetailPanel: View {
 
     private func usageText(_ reading: BalanceReading) -> String {
         if reading.id == "doubao", let percent = reading.percent { return "\(100 - percent)%" }
-        guard let value = todayUsage.valueText(for: reading.id) else { return reading.id == "workbuddy" ? "今日观测未知" : "采样不足" }
+        guard let value = todayUsage.valueText(for: reading.id) else {
+            return (reading.id == "workbuddy" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
+        }
         if reading.id == "workbuddy" { return value + " 积分" }
+        if reading.id == "qwenwork" { return value + " Credits" }
         let prefix = todayUsage.currencyPrefixes[reading.id] ?? reading.unitPrefix ?? ""
         return prefix.isEmpty || value.hasPrefix(prefix) ? value : prefix + value
     }
@@ -295,6 +302,7 @@ struct AccountDetailPanel: View {
     private func recoveryHint(_ reading: BalanceReading) -> String {
         switch reading.id {
         case "workbuddy": "打开 WorkBuddy 客户端后会自动恢复读取。"
+        case "qwenwork": "打开千问办公客户端并保持登录后重试。"
         case "doubao": "打开豆包客户端并保持登录后重试。"
         case "deepseek": "在 sources.json 配置 API Key 后重试。"
         default: "检查本机客户端状态后重试。"
@@ -306,6 +314,7 @@ struct AccountDetailPanel: View {
         case "doubao": "使用当前登录态读取豆包官方额度接口，Cookie 不额外落盘。"
         case "deepseek": "按余额计费，没有额度窗口与重置时间。"
         case "workbuddy": "需要 WorkBuddy 客户端保持运行；不读取或保存其 token。"
+        case "qwenwork": "通过千问办公客户端本机 MCP 通道只读 Credits 用量；不读取或保存登录 token。"
         default: reading.id == BalanceReading.codexID
             ? "来自本机 Codex 账户额度，与本地 Token 独立计量。"
             : "只读本机账户数据。"

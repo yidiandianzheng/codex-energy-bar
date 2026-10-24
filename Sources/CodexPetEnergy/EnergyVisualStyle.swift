@@ -28,6 +28,15 @@ enum EnergyVisualStyle {
     /// Outline for account status chips: shape and weight carry the state, not hue.
     static let statusChipStroke = Color.primary.opacity(0.16)
 
+    // The cost light is the one deliberate hue exception: green/yellow/red only
+    // inside the pricing light view, always paired with text and a shape.
+    static let pricingGreen = Color(nsColor: .systemGreen)
+    static let pricingYellow = Color(nsColor: .systemYellow)
+    static let pricingRed = Color(nsColor: .systemRed)
+    /// Activity / limited-time price. Kept separate from the cost light so a
+    /// normal price never looks like a saving.
+    static let pricingDeal = Color(nsColor: .systemOrange)
+
     static let quickAnimation = Animation.easeOut(duration: 0.14)
     static let contentAnimation = Animation.easeInOut(duration: 0.20)
     static let selectionAnimation = Animation.interactiveSpring(response: 0.28, dampingFraction: 0.9)

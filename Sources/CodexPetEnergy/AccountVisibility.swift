@@ -7,8 +7,8 @@ import Foundation
 /// page keeps the full list, so a hidden account never becomes unreachable.
 ///
 /// Codex is the app's primary account and DeepSeek is a server-side balance, so
-/// neither depends on another app being open. 豆包 and WorkBuddy can only be
-/// read while their own client is running, which is exactly the state this
+/// neither depends on another app being open. 豆包、WorkBuddy 和千问办公 can only
+/// be read while their own client is running, which is exactly the state this
 /// policy follows.
 enum AccountVisibility {
     /// Account id → bundle identifier of the client app whose local state is
@@ -16,13 +16,14 @@ enum AccountVisibility {
     static let clientBundleIdentifiers: [String: String] = [
         "doubao": "com.work.pc.doubao",
         "workbuddy": "com.tencent.workbuddy.mac",
+        "qwenwork": "cn.qwenwork.desktop.mac",
     ]
 
     static let autoHideDefaultsKey = "energy-auto-hide-inactive-accounts"
 
     /// Accounts that are hidden from the compact bar right now.
     ///
-    /// - Unconfigured accounts (no DeepSeek key, WorkBuddy disabled in
+    /// - Unconfigured accounts (no DeepSeek key, a client disabled in
     ///   `sources.json`) are noise on the glance surface and hide first.
     /// - Client-bound accounts hide while their client app is closed.
     /// - Codex is never hidden.

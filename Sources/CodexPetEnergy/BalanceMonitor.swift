@@ -13,6 +13,7 @@ final class BalanceMonitor {
     private let deepSeek = DeepSeekBalanceClient()
     private let workBuddy = WorkBuddyBalanceClient()
     private let doubao = DoubaoBalanceClient()
+    private let qwenWork = QwenWorkBalanceClient()
     private var timer: DispatchSourceTimer?
     private var inFlight: [BalanceProvider: UUID] = [:]
     private let refreshInterval: TimeInterval
@@ -79,6 +80,9 @@ final class BalanceMonitor {
         case .workbuddy:
             if config.workBuddyEnabled { workBuddy.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭 WorkBuddy 读取")) }
+        case .qwenwork:
+            if config.qwenWorkEnabled { qwenWork.fetch(completion: completion) }
+            else { completion(provider.unconfigured("已在配置中关闭千问办公读取")) }
         }
     }
 

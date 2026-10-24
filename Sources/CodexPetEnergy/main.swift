@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Publish the client-state snapshot before the panel first renders, so a
-        // closed 豆包/WorkBuddy never flashes in the compact bar.
+        // closed 豆包/WorkBuddy/千问办公 never flashes in the compact bar.
         clientMonitor.onChange = { [weak self] accounts in
             guard let self else { return }
             let previous = self.store.runningClientIDs
@@ -27,6 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let opened = accounts.subtracting(previous)
             if self.hasClientSnapshot, !opened.isEmpty {
                 self.balanceMonitor.refresh(providers: Set(opened.compactMap(BalanceProvider.init(rawValue:))))
+            }
+            // 千问办公's local MCP socket becomes available several seconds
+            // after the launch notification (the client's adaptor starts after
+            // app-ready). The first fetch retries for 12 s; this one delayed
+            // safety net covers a very slow cold start without polling forever.
+            if self.hasClientSnapshot, opened.contains(BalanceProvider.qwenwork.id) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+                    self?.balanceMonitor.refresh(providers: [.qwenwork])
+                }
             }
             self.hasClientSnapshot = true
         }

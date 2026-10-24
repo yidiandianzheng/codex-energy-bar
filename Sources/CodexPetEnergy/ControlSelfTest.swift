@@ -4,6 +4,7 @@ import Foundation
     static func check(into failures: inout [String]) {
         func expect(_ value: Bool, _ text: String) { if !value { failures.append("control: " + text) } }
         expect((try? EnergyCLIRequest.parse(["show", "radar"]))?.value == "radar", "radar CLI routing")
+        expect((try? EnergyCLIRequest.parse(["show", "pricing"]))?.value == "pricing", "pricing CLI routing")
         expect((try? EnergyCLIRequest.parse(["size", "5"]))?.value == "level5", "five size presets")
         for args in [["size", "0"], ["size", "6"], ["move", "nan", "1"], ["move", "inf", "2"], ["show", "unknown"], ["status", "extra"], ["shell", "anything"]] {
             expect((try? EnergyCLIRequest.parse(args)) == nil, "reject invalid input \(args)")

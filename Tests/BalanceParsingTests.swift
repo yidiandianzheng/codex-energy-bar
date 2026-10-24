@@ -70,6 +70,68 @@ if case .failed(let message) = doubaoExpired.state, message.contains("重新登�
 let doubaoEmpty = DoubaoQuotaParser.reading(from: Data(#"{"code":0,"data":{}}"#.utf8))
 if case .failed = doubaoEmpty.state {} else { failures.append("doubao without windows must fail") }
 
+
+// ── 千问办公 ──────────────────────────────────────────────────────────────
+let qwenFreeJSON = #"""
+{"ok":true,"data":{"available":true,"aggregateRemainingPercent":null,"isQuotaExceeded":false,
+"planCredits":{"total":0,"used":0,"remaining":1989.5875,"percentage":0,"unit":"credits"},
+"addOnCredits":null,"sharedResourcePackage":null,"isTeamPlan":false}}
+"""#
+let qwenProfileJSON = #"{"ok":true,"data":{"tier":"个人免费版","email":"demo@example.com"}}"#
+let qwenFree = QwenWorkUsageParser.reading(from: Data(qwenFreeJSON.utf8), profile: Data(qwenProfileJSON.utf8))
+check(qwenFree.state == .ok, "qwenwork fixture should decode as ok")
+check(qwenFree.valueText == "1,989.6" && qwenFree.unitSuffix == " Credits", "qwenwork shows the remaining Credits")
+check(qwenFree.percent == nil, "qwenwork without a plan denominator has no percentage")
+check(qwenFree.detail?.contains("个人免费版") == true, "qwenwork keeps the account tier")
+check(qwenFree.sourceIdentity?.hasPrefix("qwenwork:") == true, "qwenwork derives an identity for today's usage ledger")
+check(QwenWorkUsageParser.reading(from: Data(qwenFreeJSON.utf8)).sourceIdentity == nil,
+      "qwenwork without a profile keeps today's usage unknown")
+
+let qwenPaidJSON = #"""
+{"ok":true,"data":{"available":true,"aggregateRemainingPercent":null,"isQuotaExceeded":false,
+"planCredits":{"total":1000,"used":250,"remaining":750,"percentage":25,"unit":"credits"}}}
+"""#
+let qwenPaid = QwenWorkUsageParser.reading(from: Data(qwenPaidJSON.utf8))
+check(qwenPaid.percent == 75 && qwenPaid.caption?.contains("套餐") == true,
+      "qwenwork derives a remaining percentage from plan credits")
+check(qwenPaid.detail?.contains("套餐 剩 750 / 1,000") == true, "qwenwork keeps both the remaining and total plan credits")
+check(QwenWorkUsageParser.reading(from: Data(qwenPaidJSON.utf8)).sourceIdentity == nil, "missing profile never guesses account identity")
+
+let qwenExceeded = QwenWorkUsageParser.reading(from: Data(#"""
+{"ok":true,"data":{"available":true,"isQuotaExceeded":true,
+"planCredits":{"total":100,"used":100,"remaining":0,"percentage":100}}}
+"""#.utf8))
+check(qwenExceeded.percent == 0 && qwenExceeded.caption == "额度已用尽", "qwenwork marks an exhausted plan")
+
+let qwenLoggedOut = QwenWorkUsageParser.reading(from: Data(#"{"ok":true,"data":{"available":false,"message":"User not logged in"}}"#.utf8))
+if case .unconfigured(let message) = qwenLoggedOut.state, message.contains("登录") {
+} else {
+    failures.append("qwenwork should explain a signed-out client")
+}
+
+let qwenBroken = QwenWorkUsageParser.reading(from: Data("not json".utf8))
+if case .failed = qwenBroken.state {} else { failures.append("qwenwork malformed payload must fail") }
+
+let qwenEnvelopeError = QwenWorkUsageParser.reading(from: Data(#"""
+{"ok":false,"error":{"message":"quota backend unavailable"}}
+"""#.utf8))
+if case .failed(let message) = qwenEnvelopeError.state, message.contains("quota backend unavailable") {
+} else {
+    failures.append("qwenwork must surface the MCP error envelope")
+}
+
+let qwenInvalid = QwenWorkUsageParser.reading(from: Data(#"""
+{"ok":true,"data":{"available":true,"planCredits":{"total":"1e300","used":"nan","remaining":"inf"}}}
+"""#.utf8))
+if case .failed = qwenInvalid.state {} else {
+    failures.append("qwenwork must not turn invalid Credits into an exhausted quota")
+}
+
+let qwenTokenMissing = QwenWorkUsageParser.reading(from: Data(#"{"ok":true,"data":{"available":false,"message":"Access token not available"}}"#.utf8))
+if case .unconfigured = qwenTokenMissing.state {} else {
+    failures.append("qwenwork signed-out token state must hide like an unconfigured account")
+}
+
 // ── usage advisor ─────────────────────────────────────────────────────────
 func reading(_ id: String, _ title: String, value: String?, prefix: String? = nil, suffix: String? = nil,
              percent: Int?, windows: [BalanceWindowReading] = []) -> BalanceReading {
@@ -96,6 +158,13 @@ check(advice.levels["codex"] == .critical && advice.levels["workbuddy"] == .crit
 check(advice.levels["deepseek"] == .ample, "advisor treats a healthy cash balance as ample")
 check(advice.compactText.contains("推荐"), "compact advice starts with the recommendation")
 check(advice.detail.contains("15%") && !advice.detail.contains("71%"), "advice explains the actual limiting window")
+check(AIUsageAdvisor.level(for: qwenFree, now: Date()) == .unknown,
+      "a usable credit balance without a quota percentage is unrated, not unavailable")
+let qwenAdvice = AIUsageAdvisor.advise(readings: [qwenFree, reading("doubao", "豆包", value: "71", suffix: "%", percent: 71,
+    windows: [BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 71, resetAt: nil)])], now: Date())
+check(qwenAdvice.recommendedID == "doubao", "percentage-based quota outranks an unrated credit balance")
+let qwenFallback = AIUsageAdvisor.advise(readings: [qwenFree, reading("codex", "Codex", value: "1", suffix: "%", percent: 1)], now: Date())
+check(qwenFallback.recommendedID == "qwenwork", "unrated credits remain a last-resort recommendation")
 
 let allCritical = AIUsageAdvisor.advise(readings: [
     reading("codex", "Codex", value: "2", suffix: "%", percent: 2),
@@ -117,15 +186,16 @@ let visibilityReadings: [BalanceReading] = [
     reading("deepseek", "DeepSeek", value: "18.54", prefix: "¥", percent: nil),
     reading("doubao", "豆包", value: "55", suffix: "%", percent: 55),
     BalanceProvider.workbuddy.failed("WorkBuddy 未运行（找不到本地通道）"),
+    BalanceProvider.qwenwork.failed("千问办公未运行（找不到本地 MCP 通道）"),
 ]
 let closedClients = AccountVisibility.visibleReadings(visibilityReadings, runningClients: [], autoHide: true)
 check(closedClients.map(\.id) == ["codex", "deepseek"],
       "clients closed: compact bar keeps Codex and the server-side DeepSeek balance")
 let openClients = AccountVisibility.visibleReadings(visibilityReadings,
-                                                     runningClients: ["doubao", "workbuddy"], autoHide: true)
-check(openClients.map(\.id) == ["codex", "deepseek", "doubao", "workbuddy"],
+                                                     runningClients: ["doubao", "workbuddy", "qwenwork"], autoHide: true)
+check(openClients.map(\.id) == ["codex", "deepseek", "doubao", "workbuddy", "qwenwork"],
       "running clients make their accounts visible in provider order")
-check(AccountVisibility.visibleReadings(visibilityReadings, runningClients: [], autoHide: false).count == 4,
+check(AccountVisibility.visibleReadings(visibilityReadings, runningClients: [], autoHide: false).count == 5,
       "turning auto-hide off shows every account again")
 let hiddenWithUnconfigured = AccountVisibility.hiddenIDs(
     readings: [BalanceProvider.deepseek.unconfigured("未找到 DeepSeek API Key"),
@@ -133,11 +203,16 @@ let hiddenWithUnconfigured = AccountVisibility.hiddenIDs(
     runningClients: ["doubao", "workbuddy"], autoHide: true)
 check(hiddenWithUnconfigured == ["deepseek", "workbuddy"],
       "unconfigured accounts leave the compact bar even while their client runs")
+check(AccountVisibility.hiddenIDs(
+    readings: [BalanceProvider.qwenwork.unconfigured("请先在千问办公客户端登录后重试")],
+    runningClients: ["qwenwork"], autoHide: true) == ["qwenwork"],
+    "signed-out 千问办公 hides even while its client is open")
 check(AccountVisibility.hiddenIDs(readings: [visibilityReadings[0]], runningClients: [], autoHide: true).isEmpty,
       "Codex is never hidden")
 check(AccountVisibility.clientBundleIdentifiers["doubao"] == "com.work.pc.doubao"
-      && AccountVisibility.clientBundleIdentifiers["workbuddy"] == "com.tencent.workbuddy.mac",
-      "client bundle identifiers stay pinned to the two desktop apps")
+      && AccountVisibility.clientBundleIdentifiers["workbuddy"] == "com.tencent.workbuddy.mac"
+      && AccountVisibility.clientBundleIdentifiers["qwenwork"] == "cn.qwenwork.desktop.mac",
+      "client bundle identifiers stay pinned to their desktop apps")
 
 if failures.isEmpty {
     print("Balance parsing tests passed")

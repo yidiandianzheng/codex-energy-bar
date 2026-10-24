@@ -14,6 +14,10 @@ struct CompactEnergyBar: View {
     var showsCountdown = false
     var showRadar: () -> Void = {}
 
+    var pricingSnapshot: PricingSnapshot? = nil
+    var showsPricing = false
+    var showPricing: () -> Void = {}
+
     var body: some View {
         VStack(spacing: 0) {
             // Row 1: one cell per account (Codex first), tap to open its page.
@@ -29,6 +33,7 @@ struct CompactEnergyBar: View {
                         reading: reading,
                         isRecommended: advice.recommendedID == reading.id,
                         target: .account(reading.id),
+                        isDense: readings.count > 4,
                         action: { showAccount(reading.id) }
                     )
                 }
@@ -48,6 +53,14 @@ struct CompactEnergyBar: View {
             .frame(height: 22)
             .overlay(alignment: .top) {
                 Rectangle().fill(EnergyVisualStyle.hairline).frame(height: 0.5).padding(.horizontal, 8)
+            }
+
+            if showsPricing, let pricingSnapshot {
+                CompactPricingButton(snapshot: pricingSnapshot, action: showPricing)
+                    .frame(height: EnergyPanelLayout.pricingRowHeight)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(EnergyVisualStyle.hairline).frame(height: 0.5).padding(.horizontal, 8)
+                    }
             }
 
             CompactRadarButton(snapshot: radarSnapshot, loading: radarLoading, action: showRadar)

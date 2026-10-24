@@ -8,6 +8,7 @@ struct DashboardHeader: View {
     let refresh: () -> Void
     let showMore: () -> Void
     let collapse: () -> Void
+    var version: AppVersionInfo = .current
 
     var body: some View {
         HStack(spacing: 11) {
@@ -23,6 +24,12 @@ struct DashboardHeader: View {
                         Text(statusText).font(EnergyTypography.Detail.caption).foregroundStyle(refreshError == nil ? Color.secondary : EnergyVisualStyle.warningAccent)
                             .lineLimit(1).help(statusText)
                     }
+                    Text(version.summaryText)
+                        .font(EnergyTypography.Detail.meta)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .help(version.helpText)
+                        .accessibilityLabel(version.helpText)
                 }
                 Spacer(minLength: 4)
             }

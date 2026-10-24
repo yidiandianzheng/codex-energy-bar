@@ -1,9 +1,15 @@
 import Foundation
 
 enum UsageLevel: Equatable {
-    case ample, tight, critical, unavailable
+    case ample, tight, critical, unknown, unavailable
     var title: String {
-        switch self { case .ample: "充裕"; case .tight: "偏紧"; case .critical: "告急"; case .unavailable: "不可用" }
+        switch self {
+        case .ample: "充裕"
+        case .tight: "偏紧"
+        case .critical: "告急"
+        case .unknown: "未定额"
+        case .unavailable: "不可用"
+        }
     }
     var isWarning: Bool { self == .critical || self == .tight }
 }
@@ -24,7 +30,10 @@ enum AIUsageAdvisor {
         let title: String
         let level: UsageLevel
         let score: Double
+        /// Full sentence, including the recovery time.
         let reason: String
+        /// One-line version for the Mini strip: recovery time stays in `detail`.
+        let compactReason: String
     }
     static func advise(readings: [BalanceReading], now: Date = .now) -> UsageAdvice {
         var levels: [String: UsageLevel] = [:]
@@ -41,7 +50,7 @@ enum AIUsageAdvisor {
         }
         let headline = best.level == .critical ? "可用额度偏低" : "推荐\(best.title)"
         return UsageAdvice(recommendedID: best.id, headline: headline,
-            detail: "\(best.title)：\(best.reason)", compactText: "\(headline) · \(best.reason)", levels: levels)
+            detail: "\(best.title)：\(best.reason)", compactText: "\(headline) · \(best.compactReason)", levels: levels)
     }
     static func level(for reading: BalanceReading, now: Date = .now) -> UsageLevel {
         candidate(for: reading, now: now)?.level ?? .unavailable
@@ -53,9 +62,20 @@ enum AIUsageAdvisor {
             // Different currencies are never compared using CNY thresholds.
             let isCNY = currency == "CNY"
             let level: UsageLevel = isCNY ? (money >= 30 ? .ample : money >= 10 ? .tight : .critical) : .tight
+            let balance = "余额 \(reading.unitPrefix ?? currency + " ")\(reading.valueText ?? "—")"
             return Candidate(id: reading.id, title: reading.title, level: level,
                 score: isCNY ? min(20, money) : 10,
-                reason: "余额 \(reading.unitPrefix ?? currency + " ")\(reading.valueText ?? "—")")
+                reason: balance, compactReason: balance)
+        }
+        // 千问办公 reports a remaining Credit balance; its plan denominator can be
+        // absent (free/trial accounts), so a percentage only exists sometimes.
+        // Without one it is still usable, just not rateable — keep it out of the
+        // percentage ranking instead of inventing a quota denominator.
+        if reading.id == "qwenwork", reading.percent == nil {
+            guard let credits = reading.numericValue, credits.isFinite, credits > 0 else { return nil }
+            let balance = "Credits 剩 \(reading.valueText ?? "—")"
+            return Candidate(id: reading.id, title: reading.title, level: .unknown, score: 0,
+                             reason: balance, compactReason: balance)
         }
         // Reward and enterprise pools are independent, not constraints on personal quota.
         let windows = reading.id == "doubao" ? reading.windows.filter { !$0.id.hasPrefix("INC-") && !$0.id.hasPrefix("ENT-") } : reading.windows
@@ -65,10 +85,18 @@ enum AIUsageAdvisor {
         // A reset timestamp passing does not prove that the account has recovered.
         let level: UsageLevel = percent >= 30 ? .ample : percent >= 10 ? .tight : .critical
         let preference: Double = reading.id == "doubao" ? 12 : reading.id == "codex" ? 8 : 4
-        let label = limiting?.title ?? (reading.id == "workbuddy" ? "积分" : "额度")
-        let reason = "\(label)剩 \(percent)%" + resetText(limiting?.resetAt, now: now)
+        let label = limiting.map(compactWindowLabel)
+            ?? (reading.id == "workbuddy" ? "积分" : reading.id == "qwenwork" ? "Credits" : "额度")
+        let compactReason = "\(label)剩 \(percent)%"
+        let reason = compactReason + resetText(limiting?.resetAt, now: now)
         return Candidate(id: reading.id, title: reading.title, level: level,
-            score: Double(percent) + preference, reason: reason)
+            score: Double(percent) + preference, reason: reason, compactReason: compactReason)
+    }
+    /// "账户 · 5小时" is useful in the account detail list but too long for the
+    /// one-line recommendation strip; the window duration alone is enough there.
+    private static func compactWindowLabel(_ window: BalanceWindowReading) -> String {
+        let prefix = "账户 · "
+        return window.title.hasPrefix(prefix) ? String(window.title.dropFirst(prefix.count)) : window.title
     }
     private static func resetText(_ reset: Date?, now: Date) -> String {
         guard let reset else { return "" }

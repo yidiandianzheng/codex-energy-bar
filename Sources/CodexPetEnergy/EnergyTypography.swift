@@ -14,6 +14,8 @@ enum EnergyTypography {
 
     enum Detail {
         static let caption = Font.system(size: 11)
+        /// 标题栏版本信息等最低层级元数据：比 caption 更轻，不与状态文案抢层级。
+        static let meta = Font.system(size: 10, design: .rounded).monospacedDigit()
         static let body = Font.system(size: 13)
         static let label = Font.system(size: 13, weight: .medium)
         static let section = Font.system(size: 13, weight: .semibold)

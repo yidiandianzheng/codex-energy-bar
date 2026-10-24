@@ -14,6 +14,7 @@ struct EnergyRefreshRequest: Equatable {
         case .balance, .compact: return Self(codex: true, balances: Set(BalanceProvider.allCases))
         case .projects: return Self(projects: true, balances: Set(BalanceProvider.allCases))
         case .radar: return Self(radar: true)
+        case .pricing: return Self()
         }
     }
 }

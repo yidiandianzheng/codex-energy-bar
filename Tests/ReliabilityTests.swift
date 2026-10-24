@@ -113,7 +113,7 @@ func pump(_ duration: TimeInterval) { RunLoop.main.run(until: Date().addingTimeI
 /// A fixed sleep turns queue scheduling into a race on loaded machines: wait
 /// for the expected state instead, then assert it. `pump` only drives the main
 /// run loop, so the deadline bounds how long an unreachable state is polled.
-func waitUntil(_ timeout: TimeInterval = 2, _ condition: () -> Bool) -> Bool {
+func waitUntil(_ timeout: TimeInterval = 10, _ condition: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }
@@ -122,7 +122,9 @@ func waitUntil(_ timeout: TimeInterval = 2, _ condition: () -> Bool) -> Bool {
     return condition()
 }
 let synthetic = SyntheticFetches()
-let monitor = BalanceMonitor(providerTimeout: 0.2, fetcher: synthetic.fetch)
+// A loaded runner can stretch one pump past a short deadline, so the stuck
+// providers must time out far outside the hand-driven beats above.
+let monitor = BalanceMonitor(providerTimeout: 5, fetcher: synthetic.fetch)
 var received: [BalanceReading] = []
 var refreshing: [Set<String>] = []
 var finished = 0
@@ -149,13 +151,13 @@ pump(0.05)
 expect(received.filter { $0.id == "deepseek" }.count == publishedBeforeStaleCallback,
        "duplicate old callback cannot overwrite a new attempt")
 synthetic.callback(.deepseek, 1)?(deepseek("2"))
-expect(waitUntil { received.count == 4 }, "stuck providers timeout independently")
-expect(received.count == 4 && received.filter { $0.id != "deepseek" }.allSatisfy { if case .failed = $0.state { return true }; return false }, "stuck providers timeout independently")
+expect(waitUntil { received.count == 5 }, "stuck providers timeout independently")
+expect(received.count == 5 && received.filter { $0.id != "deepseek" }.allSatisfy { if case .failed = $0.state { return true }; return false }, "stuck providers timeout independently")
 expect(waitUntil { refreshing.last == [] && finished == 1 }, "all callback state reaches the main queue and final refreshing state clears")
 expect(refreshing.last == [] && finished == 1 && callbacksOnMain, "all callback state reaches the main queue and final refreshing state clears")
 synthetic.callback(.doubao, 0)?(BalanceProvider.doubao.placeholder())
 pump(0.05)
-expect(received.count == 4, "late result after timeout is ignored")
+expect(received.count == 5, "late result after timeout is ignored")
 monitor.stop()
 pump(0.01)
 ResetRadarSelfTest.check(into: &failures)

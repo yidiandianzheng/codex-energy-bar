@@ -4,6 +4,7 @@ enum EnergyPanelMode: String, Hashable {
     case quota
     case balance
     case radar
+    case pricing
 
     /// 汇总在前，账户详情其次：先看全局，再点进单个账户。
     static let dashboardModes: [EnergyPanelMode] = [.balance, .quota, .projects, .radar]
@@ -15,6 +16,7 @@ enum EnergyPanelMode: String, Hashable {
         case .quota: "账户"
         case .balance: "总览"
         case .radar: "重置雷达"
+        case .pricing: "省钱灯"
         }
     }
 
@@ -25,6 +27,7 @@ enum EnergyPanelMode: String, Hashable {
         case .quota: "person.crop.circle"
         case .balance: "square.grid.2x2"
         case .radar: "dot.radiowaves.left.and.right"
+        case .pricing: "yensign.circle"
         }
     }
 }

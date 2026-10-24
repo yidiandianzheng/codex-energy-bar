@@ -70,6 +70,7 @@ struct BalanceWindowReading: Identifiable, Equatable {
     let resetAt: Date?
     /// Marks the window whose percentage is promoted to the account's headline
     /// value, so the compact cell can surface the other window as a second line.
+    /// Filled with the current (shortest) window, e.g. 5h over 7d.
     var isPrimary: Bool = false
 
     /// Compact label for the 5-hour / 7-day windows, e.g. "5h", "7d".
@@ -88,6 +89,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
     case deepseek
     case doubao
     case workbuddy
+    case qwenwork
 
     var id: String { rawValue }
 
@@ -96,6 +98,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .deepseek: "DeepSeek"
         case .doubao: "豆包"
         case .workbuddy: "WorkBuddy"
+        case .qwenwork: "千问办公"
         }
     }
 
@@ -104,6 +107,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .deepseek: "sparkles"
         case .doubao: "bubble.left.and.bubble.right"
         case .workbuddy: "briefcase"
+        case .qwenwork: "wand.and.stars"
         }
     }
 
@@ -112,6 +116,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .deepseek: URL(string: "https://platform.deepseek.com/usage")
         case .doubao: URL(string: "https://www.doubao.com/chat/")
         case .workbuddy: URL(string: "https://www.workbuddy.cn/profile/plan")
+        case .qwenwork: URL(string: "https://qwenwork.cn")
         }
     }
 
@@ -179,10 +184,11 @@ enum BalanceFormatting {
     }
 
     /// Credits arrive as long decimal strings (e.g. "195.12000212"). Two
-    /// fraction digits keep the row readable; trailing zeros dropped.
-    static func credits(_ raw: String) -> String? {
+    /// fraction digits keep the row readable; trailing zeros dropped. The
+    /// 千问办公 balance is shown with one decimal place.
+    static func credits(_ raw: String, fractionLength: Int = 2) -> String? {
         guard let value = Decimal(string: raw.trimmingCharacters(in: .whitespaces)) else { return nil }
-        return format(value, fractionLength: 2, trimmingTrailingZeros: true)
+        return format(value, fractionLength: fractionLength, trimmingTrailingZeros: true)
     }
 
     static func percent(_ remaining: Double) -> Int {
@@ -204,12 +210,23 @@ enum BalanceFormatting {
 extension BalanceReading {
     static let codexID = "codex"
 
-    /// Surface the binding account window, preserving every window for detail.
+    /// Surface the current (shortest) account window as the headline, keeping
+    /// the longer window — and every other window — in `windows` for detail.
+    ///
+    /// The 5-hour window answers "what can this session spend right now", while
+    /// the weekly window is a longer reserve. Showing the weekly percentage as
+    /// the headline hid the near-term limit, so the shortest window is promoted
+    /// instead. The usage advisor still judges a quota by its tightest window,
+    /// so the recommendation never treats a large weekly reserve as safe when
+    /// the current window is nearly spent.
     static func codex(limits: [QuotaLimitReading], now: Date = .now) -> BalanceReading {
         let icon = "gauge.with.dots.needle.50percent"
         let accountWindows = limits.filter { $0.id.hasPrefix("\(codexID)-") }
         let pool = accountWindows.isEmpty ? limits : accountWindows
-        let limit = pool.filter { $0.remainingPercent != nil }.min { ($0.remainingPercent ?? 100) < ($1.remainingPercent ?? 100) } ?? pool.first
+        let knownWindows = pool.filter { $0.remainingPercent != nil }
+        let limit = knownWindows.min {
+            ($0.windowDurationMins ?? .max) < ($1.windowDurationMins ?? .max)
+        } ?? knownWindows.first ?? pool.first
         guard let limit else {
             return BalanceReading(
                 id: codexID, title: "Codex", systemImage: icon,

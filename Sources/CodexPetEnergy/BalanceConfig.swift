@@ -5,14 +5,17 @@ import Foundation
 /// Secrets live only in `~/.config/codex-energy-bar/sources.json` (0600) and are
 /// never written to the repository or uploaded anywhere. The file is optional:
 /// DeepSeek can be discovered from keys the machine already stores, WorkBuddy
-/// uses its own local IPC channel, and 豆包 reads its own client login state.
+/// and 千问办公 use their own local channels, and 豆包 reads its own client login
+/// state.
 struct BalanceConfig: Equatable {
     var deepSeekAPIKey: String?
     var doubaoCookie: String?
     var doubaoProductLine: String?
     var workBuddyEnabled: Bool
+    var qwenWorkEnabled: Bool
 
-    static let empty = BalanceConfig(deepSeekAPIKey: nil, doubaoCookie: nil, doubaoProductLine: nil, workBuddyEnabled: true)
+    static let empty = BalanceConfig(deepSeekAPIKey: nil, doubaoCookie: nil, doubaoProductLine: nil,
+                                     workBuddyEnabled: true, qwenWorkEnabled: true)
 
     static var directoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -43,6 +46,10 @@ struct BalanceConfig: Equatable {
             if let workbuddy = object["workbuddy"] as? [String: Any],
                let enabled = workbuddy["enabled"] as? Bool {
                 config.workBuddyEnabled = enabled
+            }
+            if let qwenwork = object["qwenwork"] as? [String: Any],
+               let enabled = qwenwork["enabled"] as? Bool {
+                config.qwenWorkEnabled = enabled
             }
         }
         if config.deepSeekAPIKey == nil {
@@ -87,7 +94,8 @@ struct BalanceConfig: Equatable {
                   "_comment": "算力环额外账户配置。只保存在本机，权限 0600。",
                   "deepseek": { "apiKey": "" },
                   "doubao": { "cookie": "", "productLine": "" },
-                  "workbuddy": { "enabled": true }
+                  "workbuddy": { "enabled": true },
+                  "qwenwork": { "enabled": true }
                 }
                 """
                 try template.write(to: fileURL, atomically: true, encoding: .utf8)

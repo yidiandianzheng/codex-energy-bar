@@ -13,10 +13,12 @@ struct MiniLayoutSnapshots {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         for dark in [false, true] {
             for size in CommandLine.arguments.contains("--spot-check") ? [CompactPanelSize.level1] : CompactPanelSize.allCases {
-                for scenario in CommandLine.arguments.contains("--spot-check") ? ["full", "large-values", "error"] : ["full", "no-watch", "error", "watch-no-odds", "reference", "average", "countdown", "countdown-days", "countdown-due", "codex-only"] {
+                for scenario in CommandLine.arguments.contains("--spot-check") ? ["full", "large-values", "error"] : ["full", "no-watch", "error", "watch-no-odds", "reference", "average", "countdown", "countdown-days", "countdown-due", "codex-only", "pricing"] {
                     let failure = scenario == "error"
                     let scale = size.scale
-                    let limits = [QuotaLimitReading(id: "codex-primary", title: "周额度", remainingPercent: 100,
+                    let limits = [QuotaLimitReading(id: "codex-primary", title: "5 小时", remainingPercent: 75,
+                        resetsAt: Date().addingTimeInterval(4 * 3600), windowDurationMins: 300),
+                        QuotaLimitReading(id: "codex-secondary", title: "周额度", remainingPercent: 80,
                         resetsAt: Date().addingTimeInterval(5 * 86400), windowDurationMins: 10080)]
                     let formatter = ISO8601DateFormatter()
                     let now = Date()
@@ -32,7 +34,7 @@ struct MiniLayoutSnapshots {
                             caption: "当前时段剩余 · 标准套餐", detail: "2 小时后重置 · 近 7 天 71%",
                             percent: 15,
                             windows: [
-                                BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 15, resetAt: now.addingTimeInterval(3600)),
+                                BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 15, resetAt: now.addingTimeInterval(3600), isPrimary: true),
                                 BalanceWindowReading(id: "D7", title: "近 7 天", remainingPercent: 71, resetAt: now.addingTimeInterval(3 * 86400)),
                             ],
                             state: .ok, sourceURL: nil, updatedAt: now),
@@ -40,12 +42,17 @@ struct MiniLayoutSnapshots {
                             valueText: scenario == "large-values" ? "1,000,000,000,000,000" : "195.12", unitPrefix: nil, unitSuffix: " 积分",
                             caption: "剩余积分", detail: "体验版 · 已用 6,504.88 / 6,700", percent: 3, windows: [],
                             state: .ok, sourceURL: nil, updatedAt: now, numericValue: scenario == "large-values" ? 1_000_000_000_000_000 : 195.12, sourceIdentity: "demo-workbuddy"),
+                        BalanceReading(id: "qwenwork", title: "千问办公", systemImage: "wand.and.stars",
+                            valueText: scenario == "large-values" ? "123,456,789.1" : "1,989.6", unitPrefix: nil, unitSuffix: " Credits",
+                            caption: "剩余 Credits", detail: "个人免费版", percent: nil, windows: [],
+                            state: .ok, sourceURL: nil, updatedAt: now, numericValue: scenario == "large-values" ? 123456789.12 : 1989.59, currency: "credits", sourceIdentity: "demo-qwenwork"),
                     ]
                     if failure {
                         readings[0].state = .stale("演示：保留上次额度")
                         readings[1] = BalanceProvider.deepseek.unconfigured("演示：尚未配置 API Key")
                         readings[2] = BalanceProvider.doubao.failed("演示：客户端未运行")
                         readings[3] = BalanceProvider.workbuddy.failed("演示：读取失败")
+                        readings[4] = BalanceProvider.qwenwork.failed("演示：客户端未运行")
                     }
                     // Auto-hide worst case: the bar keeps only the primary account.
                     let visibleReadings = scenario == "codex-only" ? [codex] : readings
@@ -74,11 +81,14 @@ struct MiniLayoutSnapshots {
                         radar.reference = try JSONDecoder().decode(ResetReferenceForecast.self, from: Data(json.utf8))
                     }
                     let countdown = radar.countdownTarget(now: .now) != nil
-                    let base = EnergyPanelLayout.compactBaseSize(showsCountdown: countdown)
+                    let showsPricing = scenario == "pricing"
+                    let base = EnergyPanelLayout.compactBaseSize(showsCountdown: countdown, showsPricing: showsPricing)
                     let root = CompactEnergyBar(readings: visibleReadings, advice: advice,
                         todayTokens: 1_234_500_000_000, projectError: failure ? "同步失败" : nil,
                         showAccount: { _ in }, showAccounts: {}, showProjects: {},
-                        radarSnapshot: radar, showsCountdown: countdown, showRadar: {})
+                        radarSnapshot: radar, showsCountdown: countdown, showRadar: {},
+                        pricingSnapshot: showsPricing ? PricingEngine.snapshot(at: now, catalog: .builtIn) : nil,
+                        showsPricing: showsPricing, showPricing: {})
                         .frame(width: base.width, height: base.height)
                         .scaleEffect(scale, anchor: .topLeading)
                         .frame(width: base.width * scale, height: base.height * scale, alignment: .topLeading)
@@ -95,7 +105,7 @@ struct MiniLayoutSnapshots {
                     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
                     view.layoutSubtreeIfNeeded()
                     let regions = markers(in: view)
-                    precondition(regions.count == visibleReadings.count + 3 + (countdown ? 1 : 0),
+                    precondition(regions.count == visibleReadings.count + 3 + (countdown ? 1 : 0) + (showsPricing ? 1 : 0),
                                  "Every visible button must publish a layout marker")
                     let rects = regions.map { $0.convert($0.bounds, to: view) }
                     for (index, rect) in rects.enumerated() where !frame.insetBy(dx: -0.5, dy: -0.5).contains(rect) {
@@ -129,7 +139,7 @@ extension MiniLayoutSnapshots {
         // Ask only this fixture process to construct its SwiftUI accessibility tree.
         NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
         let now = Date()
-        let readings = ["codex", "deepseek", "doubao", "workbuddy"].map { id in
+        let readings = ["codex", "deepseek", "doubao", "workbuddy", "qwenwork"].map { id in
             BalanceReading(id: id, title: id, systemImage: "circle", valueText: "42", unitPrefix: nil,
                 unitSuffix: "%", caption: "演示", detail: nil, percent: 42, windows: [], state: .ok,
                 sourceURL: nil, updatedAt: now, numericValue: 42, sourceIdentity: "demo-" + id)
@@ -154,7 +164,7 @@ extension MiniLayoutSnapshots {
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         wrapper.layoutSubtreeIfNeeded()
         let regions = markers(in: wrapper).filter { if case .account = $0.target { return true }; return false }
-        precondition(regions.count == 4, "Interaction fixture needs four account regions")
+        precondition(regions.count == 5, "Interaction fixture needs five account regions")
         func event(_ type: NSEvent.EventType, at point: CGPoint) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
@@ -216,7 +226,7 @@ extension MiniLayoutSnapshots {
         }
         fflush(stdout)
         if !buttons.isEmpty {
-            precondition(pressed == 4, "All four account buttons must be accessible when the AX tree is available")
+            precondition(pressed == 5, "All five account buttons must be accessible when the AX tree is available")
         } else {
             print("UNVERIFIED AX Press and Space: fixture environment did not expose SwiftUI accessibility nodes")
         }

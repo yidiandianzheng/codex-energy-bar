@@ -38,6 +38,13 @@ swift build -c release
 ./scripts/test-dashboard-layout.sh
 ```
 
+## 版本与更新日志
+
+- 标记新的本地构建时，递增 `Resources/Info.plist` 的 `CFBundleVersion`（当前第 75 版）；对外发布时同步 `CFBundleShortVersionString` 并打 tag。
+- 每次标记构建或发布后，在 `CHANGELOG.md` 的「版本速查」表顶部追加一行并写对应改动小节；README「更新日志」表格同步更新。
+- 构建日期由 `scripts/build-app.sh` 打包时自动写入 `CFBundleBuildDate`（Asia/Shanghai），不要手改；需要固定日期时用 `CODEX_PET_ENERGY_BUILD_DATE`。
+- 应用内可在标题栏第三行、「更多 → 关于 算力环」或 `energyctl status` 的 `version` / `build` / `buildDate` 字段核对版本。
+
 ## 代码合并请求
 
 1. 从 `main` 创建简短分支。

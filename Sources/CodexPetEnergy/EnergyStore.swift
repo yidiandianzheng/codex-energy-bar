@@ -34,7 +34,7 @@ final class EnergyStore: ObservableObject {
     private var lastQuotaAttempt: Date?
     private let startsTimers: Bool
 
-    /// Accounts whose desktop client is currently open (豆包 / WorkBuddy).
+    /// Accounts whose desktop client is currently open (豆包 / WorkBuddy / 千问办公).
     @Published private(set) var runningClientIDs: Set<String> = []
     /// Whether the compact bar hides accounts that are not in use. Persisted in
     /// UserDefaults; the balance page always keeps the full list.
@@ -45,6 +45,11 @@ final class EnergyStore: ObservableObject {
     @Published private(set) var radarSnapshot: ResetRadarSnapshot?
     @Published private(set) var isRefreshingRadar = false
     @Published private(set) var showsResetCountdown = false
+    /// Local price snapshot; recomputed from the built-in catalog on every clock tick.
+    @Published private(set) var pricingSnapshot: PricingSnapshot
+    /// Whether the compact bar keeps the cost-light row. Missing preference means on.
+    @Published private(set) var showsPricingRow: Bool
+    static let pricingRowDefaultsKey = "energy-pricing-row-enabled"
     private var countdownVisibilityTimer: AnyCancellable?
     func beginRadarRefresh() { isRefreshingRadar = true }
     func applyRadar(_ snapshot: ResetRadarSnapshot) {
@@ -68,6 +73,7 @@ final class EnergyStore: ObservableObject {
         case .projects: isRefreshingProjects || isRefreshingBalances
         case .balance, .compact: isRefreshingBalances || isRefreshing
         case .quota: selectedAccountID == BalanceReading.codexID ? isRefreshing : refreshingBalanceIDs.contains(selectedAccountID)
+        case .pricing: false
         }
     }
     var currentPageLastUpdated: Date? {
@@ -76,6 +82,7 @@ final class EnergyStore: ObservableObject {
         case .projects: lastProjectUpdate
         case .quota: allBalanceReadings.first { $0.id == selectedAccountID }?.updatedAt
         case .balance, .compact: allBalanceReadings.compactMap(\.updatedAt).min()
+        case .pricing: pricingSnapshot.checkedAt
         }
     }
     var currentPageError: String? {
@@ -86,6 +93,7 @@ final class EnergyStore: ObservableObject {
         case .balance, .compact:
             let count = allBalanceReadings.filter { if case .stale = $0.state { return true }; if case .failed = $0.state { return true }; return false }.count
             return count == 0 ? nil : "\(count) 个来源需要处理，详情见对应账户"
+        case .pricing: return nil
         }
     }
     var refreshRequest: EnergyRefreshRequest { EnergyRefreshRequest.forPage(mode, accountID: selectedAccountID) }
@@ -143,6 +151,7 @@ final class EnergyStore: ObservableObject {
     func tick(now: Date) {
         let crossedDay = DailyUsageStore.dayKey(clockNow) != DailyUsageStore.dayKey(now)
         clockNow = now
+        pricingSnapshot = PricingEngine.snapshot(at: now, catalog: .builtIn)
         rollDailyUsageIfNeeded(now: now)
         if crossedDay {
             projects = []
@@ -153,13 +162,19 @@ final class EnergyStore: ObservableObject {
         updateCountdownVisibility(now: now)
     }
 
-    /// Called by `ClientRunningMonitor` on the main queue whenever 豆包 or
-    /// WorkBuddy is opened/quit.
+    /// Called by `ClientRunningMonitor` on the main queue whenever 豆包、
+    /// WorkBuddy or 千问办公 is opened/quit.
     func applyRunningClients(_ ids: Set<String>) {
         guard runningClientIDs != ids else { return }
         for id in runningClientIDs.subtracting(ids) { dailyUsageLedger.breakContinuity(for: id) }
         runningClientIDs = ids
         updateHiddenBalances()
+    }
+
+    func setShowsPricingRow(_ enabled: Bool) {
+        guard showsPricingRow != enabled else { return }
+        showsPricingRow = enabled
+        defaults.set(enabled, forKey: Self.pricingRowDefaultsKey)
     }
 
     func setAutoHideInactiveAccounts(_ enabled: Bool) {
@@ -275,6 +290,8 @@ final class EnergyStore: ObservableObject {
         let selected = defaults.string(forKey: Self.selectedAccountDefaultsKey) ?? BalanceReading.codexID
         self.selectedAccountID = ([BalanceReading.codexID] + BalanceProvider.allCases.map(\.id)).contains(selected) ? selected : BalanceReading.codexID
         self.autoHideInactiveAccounts = defaults.object(forKey: AccountVisibility.autoHideDefaultsKey) as? Bool ?? true
+        self.showsPricingRow = defaults.object(forKey: Self.pricingRowDefaultsKey) as? Bool ?? true
+        self.pricingSnapshot = PricingEngine.snapshot(at: now, catalog: .builtIn)
         updateHiddenBalances()
         rollDailyUsageIfNeeded(now: now)
         publishTodayUsage()

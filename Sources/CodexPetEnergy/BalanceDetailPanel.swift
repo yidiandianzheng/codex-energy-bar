@@ -31,7 +31,7 @@ struct BalanceDetailPanel: View {
                 PanelEmptyState(
                     title: "正在读取账户余额",
                     systemImage: "creditcard",
-                    description: "Codex、DeepSeek、豆包、WorkBuddy 的剩余额度会分别显示；未配置的账户会给出配置指引。"
+                    description: "Codex、DeepSeek、豆包、WorkBuddy、千问办公的剩余额度会分别显示；未配置的账户会给出配置指引。"
                 )
             } else {
                 ScrollView {
@@ -75,7 +75,7 @@ struct BalanceDetailPanel: View {
             formatter.dateFormat = "HH:mm"
             return "更新于 \(formatter.string(from: lastUpdated)) · 每 5 分钟自动刷新 · 只读本机账户数据"
         }
-        return "每 5 分钟自动刷新 · 密钥与登录态只保存在本机"
+        return "每 5 分钟自动刷新 · 账户数据只在本机读取"
     }
 }
 

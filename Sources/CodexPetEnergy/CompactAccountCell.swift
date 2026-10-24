@@ -6,6 +6,10 @@ struct CompactAccountCell: View {
     let reading: BalanceReading
     let isRecommended: Bool
     let target: CompactActionTarget
+    /// Five simultaneously open clients leave about 61 pt per cell. In that
+    /// transient case drop the window suffix from the title and shorten large
+    /// balances so the cell never truncates its headline number.
+    var isDense = false
     let action: () -> Void
     @State<Bool> private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -24,7 +28,7 @@ struct CompactAccountCell: View {
                         .font(EnergyTypography.Mini.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .minimumScaleFactor(1)
+                        .minimumScaleFactor(isDense ? 0.8 : 1)
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     if reading.id == "deepseek", reading.hasReading, let prefix = reading.unitPrefix {
@@ -34,7 +38,7 @@ struct CompactAccountCell: View {
                         .font(EnergyTypography.Mini.value)
                         .foregroundStyle(isAvailable ? .primary : .secondary)
                         .lineLimit(1)
-                        .minimumScaleFactor(1)
+                        .minimumScaleFactor(isDense ? 0.65 : 0.85)
                 }
                 Text(secondaryText ?? " ")
                     .font(EnergyTypography.Mini.sub)
@@ -74,7 +78,9 @@ struct CompactAccountCell: View {
 
     private var shortTitle: String {
         // "豆包 5h" / "Codex 7d": name the window the headline number belongs
-        // to, so the two quotas are never mixed up.
+        // to, so the two quotas are never mixed up. The dense five-account bar
+        // keeps only the account name to avoid a truncated title.
+        guard !isDense else { return reading.title }
         guard let tag = primaryWindow?.shortTag else { return reading.title }
         return "\(reading.title) \(tag)"
     }
@@ -82,6 +88,15 @@ struct CompactAccountCell: View {
     private var valueText: String {
         switch reading.state {
         case .ok, .stale:
+            if reading.id == "qwenwork", let number = numericValue {
+                // Keep the exact balance (one decimal) instead of "2K"; this is
+                // the number the user checks against 千问办公 itself.
+                return String(format: "%.1f", number)
+            }
+            if isDense, ["deepseek", "workbuddy"].contains(reading.id),
+               let number = numericValue {
+                return compactDecimal(number)
+            }
             switch reading.id {
             case "deepseek":
                 if let number = numericValue { return compactDecimal(number) }
@@ -114,6 +129,7 @@ struct CompactAccountCell: View {
         switch reading.id {
         case "workbuddy": return "积分"
         case "deepseek": return "余额"
+        case "qwenwork": return "Credits"
         default: return nil
         }
     }

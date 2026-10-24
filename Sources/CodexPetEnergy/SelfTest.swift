@@ -14,6 +14,7 @@ enum SelfTest {
         ResetRadarSelfTest.check(into: &failures)
         ControlSelfTest.check(into: &failures)
         UpgradeSelfTest.check(into: &failures)
+        PricingSelfTest.check(into: &failures)
 
         check(EnergyLogic.remainingPercent(fromUsedPercent: 0) == 100, "0% used should leave 100%", into: &failures)
         check(EnergyLogic.remainingPercent(fromUsedPercent: 66) == 34, "66% used should leave 34%", into: &failures)
@@ -88,6 +89,16 @@ enum SelfTest {
         let doubaoFixture = #"{"code":0,"data":{"window_limit_section":{"window_limit_groups":[{"window_limits":[{"end_time":1792819135023,"used_percent":29,"window_type":2}]}]}}}"#
         check(DoubaoQuotaParser.reading(from: Data(doubaoFixture.utf8)).valueText == "71",
               "doubao quota parsing", into: &failures)
+        let qwenWorkFixture = #"""
+        {"ok":true,"data":{"available":true,"aggregateRemainingPercent":null,"isQuotaExceeded":false,
+        "planCredits":{"total":0,"used":0,"remaining":1989.5875,"percentage":0,"unit":"credits"}}}
+        """#
+        let qwenWorkReading = QwenWorkUsageParser.reading(from: Data(qwenWorkFixture.utf8))
+        check(qwenWorkReading.valueText == "1,989.6" && qwenWorkReading.percent == nil
+              && qwenWorkReading.unitSuffix == " Credits", "qwenwork credits parsing", into: &failures)
+        let qwenWorkProfile = #"{"ok":true,"data":{"tier":"个人免费版","email":"selftest@example.com"}}"#
+        check(QwenWorkUsageParser.reading(from: Data(qwenWorkFixture.utf8), profile: Data(qwenWorkProfile.utf8))
+              .sourceIdentity?.hasPrefix("qwenwork:") == true, "qwenwork identity parsing", into: &failures)
         let codexLimit = QuotaLimitReading(id: "codex-primary", title: "周额度", remainingPercent: 3,
                                           resetsAt: Date().addingTimeInterval(6 * 86400), windowDurationMins: 10_080)
         let codexReading = BalanceReading.codex(limits: [codexLimit])
@@ -222,11 +233,12 @@ enum SelfTest {
         check(TokenFormatting.exact(27_000_000) == "27,000,000", "exact token counts should preserve grouping", into: &failures)
         check(TokenFormatting.compact(27_000_000) == "2700万", "large token numbers should use Chinese units", into: &failures)
         checkPanelGeometry(into: &failures)
+        checkVersionInfo(into: &failures)
 
         checkProjectUsage(into: &failures)
 
         if failures.isEmpty {
-            print("Self-test passed: quota parsing, balance parsing, colors, independent resets, sparse updates, panel geometry, mode behavior, project usage")
+            print("Self-test passed: quota parsing, balance parsing, colors, independent resets, sparse updates, panel geometry, version info, mode behavior, project usage")
             return true
         }
         failures.forEach { print("Self-test failed: \($0)") }
@@ -247,6 +259,34 @@ enum SelfTest {
 
     private static func check(_ condition: @autoclosure () -> Bool, _ message: String, into failures: inout [String]) {
         if !condition() { failures.append(message) }
+    }
+
+    private static func checkVersionInfo(into failures: inout [String]) {
+        let packaged = AppVersionInfo(shortVersion: "1.4.0", buildNumber: "75", buildDate: AppVersionInfo.buildDate(fromText: "2026-10-23"))
+        check(packaged.isPackaged, "packaged build should expose its version", into: &failures)
+        check(packaged.versionText == "v1.4.0", "version text should keep the v prefix", into: &failures)
+        check(packaged.buildText == "第 75 版", "build text should count builds in Chinese", into: &failures)
+        check(packaged.buildDateText == "2026-10-23", "build date should print as yyyy-MM-dd in Shanghai", into: &failures)
+        check(packaged.summaryText == "v1.4.0 · 第 75 版 · 构建 2026-10-23",
+              "header summary should list version, build and build date", into: &failures)
+        check(packaged.aboutText.contains("版本 v1.4.0（第 75 版）") && packaged.aboutText.contains("构建日期：2026-10-23"),
+              "about text should spell out version and build date", into: &failures)
+        check(packaged.helpText.contains("CHANGELOG.md"), "header tooltip should point at the changelog", into: &failures)
+
+        let development = AppVersionInfo(shortVersion: AppVersionInfo.unknown, buildNumber: AppVersionInfo.unknown, buildDate: nil)
+        check(!development.isPackaged, "missing bundle version should read as a development run", into: &failures)
+        check(development.summaryText == "开发版", "development run must not invent a version number", into: &failures)
+        check(development.aboutText.contains("构建日期：未知"), "unknown build date should stay explicit", into: &failures)
+
+        if let midnight = AppVersionInfo.buildDate(fromText: "2026-10-23") {
+            check(AppVersionInfo(shortVersion: "1.4.0", buildNumber: "75", buildDate: midnight).buildDateText == "2026-10-23",
+                  "parsed build date must not shift across time zones", into: &failures)
+        } else {
+            failures.append("yyyy-MM-dd build date should parse")
+        }
+        check(AppVersionInfo.buildDate(fromText: "2026-10-23T12:00:00+08:00") != nil,
+              "ISO 8601 build date should parse", into: &failures)
+        check(AppVersionInfo.buildDate(fromText: "  ") == nil, "blank build date should not parse", into: &failures)
     }
 
     private static func checkProjectUsage(into failures: inout [String]) {

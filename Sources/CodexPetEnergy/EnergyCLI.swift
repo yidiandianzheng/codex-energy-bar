@@ -13,8 +13,8 @@ struct EnergyCLIRequest: Codable {
             guard args.count == 1 else { throw CLIError.message("该命令不接受额外参数") }
             return Self(command: command)
         case "show":
-            guard args.count == 2, ["compact", "quota", "balance", "projects", "radar"].contains(args[1]) else {
-                throw CLIError.message("用法：show compact|quota|balance|projects|radar")
+            guard args.count == 2, ["compact", "quota", "balance", "projects", "radar", "pricing"].contains(args[1]) else {
+                throw CLIError.message("用法：show compact|quota|balance|projects|radar|pricing")
             }
             return Self(command: command, value: args[1])
         case "size":
@@ -54,7 +54,7 @@ enum EnergyCLI {
     static let help = """
     算力环本地 CLI（控制已经运行的应用；JSON 输出）
       energyctl status                       查询窗口、额度摘要、雷达状态
-      energyctl show compact|quota|balance|projects|radar
+      energyctl show compact|quota|balance|projects|radar|pricing
       energyctl hide                         隐藏浮窗
       energyctl size 1..5                     设置现有五档尺寸
       energyctl move X Y                      移动并保存位置（屏幕逻辑点，左下原点）

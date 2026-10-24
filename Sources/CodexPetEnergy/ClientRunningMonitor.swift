@@ -48,7 +48,7 @@ final class ClientRunningMonitor {
     }
 
     /// Reads the actual running-application list once per event; exact bundle
-    /// identifier match keeps browser helpers and helpers of 豆包 out.
+    /// identifier match keeps browser helpers and Electron helper apps out.
     static func runningAccounts() -> Set<String> {
         let applications = NSWorkspace.shared.runningApplications
         let identifiers = Set(applications.compactMap(\.bundleIdentifier))

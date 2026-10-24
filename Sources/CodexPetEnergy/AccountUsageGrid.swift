@@ -3,10 +3,11 @@ import SwiftUI
 /// Per-account usage strip on the "今日用量" page.
 ///
 /// It only prints figures each provider actually exposes: Codex has local token
-/// logs, 豆包 publishes the current window's remaining percentage, WorkBuddy
-/// reports spent credits and DeepSeek just has a balance. No token number is
-/// invented for the latter three — that is why the caption states the data
-/// boundary and why sampling is required before "today's spend" can be shown.
+/// logs, 豆包 publishes the current window's remaining percentage, WorkBuddy and
+/// 千问办公 report spent/remaining credits, and DeepSeek just has a balance. No
+/// token number is invented for the latter four — that is why the caption states
+/// the data boundary and why sampling is required before "today's spend" can be
+/// shown.
 struct AccountUsageGrid: View {
     let codexTokens: Int?
     let readings: [BalanceReading]
@@ -27,11 +28,13 @@ struct AccountUsageGrid: View {
                 cell(doubao)
                 divider
                 cell(workbuddy)
+                divider
+                cell(qwenwork)
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 10)
             .energyCardSurface()
-            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 今日观测值（身份未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
+            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
                 .font(EnergyTypography.Detail.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -54,7 +57,7 @@ struct AccountUsageGrid: View {
             Text(entry.value)
                 .font(EnergyTypography.Detail.gridValue)
                 .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                .minimumScaleFactor(0.75)
             Text(entry.note)
                 .fixedSize(horizontal: false, vertical: true)
                 .font(EnergyTypography.Detail.caption)
@@ -63,7 +66,7 @@ struct AccountUsageGrid: View {
                 .minimumScaleFactor(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 7)
     }
 
     private var divider: some View {
@@ -118,6 +121,31 @@ struct AccountUsageGrid: View {
             title: "WorkBuddy",
             value: spent,
             note: spent == "—" ? "今日观测未知" : (remaining.isEmpty ? "今日积分" : "今日积分 · \(remaining)")
+        )
+    }
+
+    private var qwenwork: Entry {
+        guard let reading = readings.first(where: { $0.id == "qwenwork" }) else {
+            return Entry(title: "千问办公", value: "—", note: "未读取")
+        }
+        if !reading.hasReading {
+            switch reading.state {
+            case .loading: return Entry(title: "千问办公", value: "—", note: "读取中")
+            case .unconfigured: return Entry(title: "千问办公", value: "—", note: "未登录")
+            case .failed(let message):
+                return Entry(title: "千问办公", value: "—",
+                             note: message.contains("未运行") || message.contains("启动") ? "未运行" : "读取失败")
+            default: return Entry(title: "千问办公", value: "—", note: "未读取")
+            }
+        }
+        if case .stale = reading.state {
+            return Entry(title: "千问办公", value: "—", note: "上次 Credits " + (reading.valueText ?? "—"))
+        }
+        let spent = todayUsage.valueText(for: "qwenwork") ?? "—"
+        return Entry(
+            title: "千问办公",
+            value: spent,
+            note: spent == "—" ? "今日观测未知" : "今日 Credits"
         )
     }
 

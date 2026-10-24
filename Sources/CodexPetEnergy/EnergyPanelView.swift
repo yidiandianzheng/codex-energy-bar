@@ -8,7 +8,10 @@ struct EnergyPanelView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let compactBase = EnergyPanelLayout.compactBaseSize(showsCountdown: store.showsResetCountdown)
+        let compactBase = EnergyPanelLayout.compactBaseSize(
+            showsCountdown: store.showsResetCountdown,
+            showsPricing: store.showsPricingRow
+        )
         let base = store.mode == .compact ? compactBase : EnergyPanelLayout.expandedSize
         let scale = CompactPanelSize(rawValue: sizeLevel)?.scale ?? 1
         ZStack(alignment: .topLeading) {
@@ -21,7 +24,10 @@ struct EnergyPanelView: View {
                     showProjects: { store.setMode(.projects) },
                     radarSnapshot: store.radarSnapshot, radarLoading: store.isRefreshingRadar,
                     showsCountdown: store.showsResetCountdown,
-                    showRadar: { store.setMode(.radar) })
+                    showRadar: { store.setMode(.radar) },
+                    pricingSnapshot: store.pricingSnapshot,
+                    showsPricing: store.showsPricingRow,
+                    showPricing: { store.setMode(.pricing) })
                     .frame(width: compactBase.width, height: compactBase.height)
                     .transition(.opacity)
             } else {

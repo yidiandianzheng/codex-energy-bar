@@ -17,6 +17,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var modeObserver: AnyCancellable?
     private var countdownObserver: AnyCancellable?
+    private var pricingRowObserver: AnyCancellable?
     private var displayedMode: EnergyPanelMode = .compact
     private var suppressAnimations = false
     private var snapshotPath: String?
@@ -28,7 +29,11 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         self.refreshData = refreshData
         self.refreshBalances = refreshBalances
         panel = EnergyFloatingPanel(
-            contentRect: CGRect(origin: .zero, size: EnergyPanelLayout.size(for: .compact, showsCountdown: store.showsResetCountdown)),
+            contentRect: CGRect(origin: .zero, size: EnergyPanelLayout.size(
+                for: .compact,
+                showsCountdown: store.showsResetCountdown,
+                showsPricing: store.showsPricingRow
+            )),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -73,6 +78,18 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             }
             self.resize(for: self.store.mode, showsCountdown: visible)
         }
+        pricingRowObserver = store.$showsPricingRow
+            .dropFirst()
+            .sink { [weak self] visible in
+                guard let self else { return }
+                // Keep the compact top edge stable, mirroring the countdown row.
+                if self.store.mode != .compact, let origin = self.compactOrigin {
+                    let oldHeight = self.panelSize(for: .compact).height
+                    let newHeight = self.panelSize(for: .compact, showsPricing: visible).height
+                    self.compactOrigin = CGPoint(x: origin.x, y: origin.y + oldHeight - newHeight)
+                }
+                self.resize(for: self.store.mode, showsPricing: visible)
+            }
         panel.collapse = { [weak store] in store?.setCompactMode() }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "算力环")
@@ -133,8 +150,8 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         refreshBalances()
     }
 
-    private func resize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil) {
-        let size = panelSize(for: mode, showsCountdown: showsCountdown)
+    private func resize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil, showsPricing: Bool? = nil) {
+        let size = panelSize(for: mode, showsCountdown: showsCountdown, showsPricing: showsPricing)
         let current = panel.frame
         if mode != .compact, displayedMode == .compact {
             compactOrigin = current.origin
@@ -172,8 +189,12 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         panel.setFrame(PanelFrameLayout.clamped(proposed, to: visible), display: true)
     }
 
-    private func panelSize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil) -> CGSize {
-        EnergyPanelLayout.size(for: mode, showsCountdown: showsCountdown ?? store.showsResetCountdown)
+    private func panelSize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil, showsPricing: Bool? = nil) -> CGSize {
+        EnergyPanelLayout.size(
+            for: mode,
+            showsCountdown: showsCountdown ?? store.showsResetCountdown,
+            showsPricing: showsPricing ?? store.showsPricingRow
+        )
     }
 
     func control(_ request: EnergyCLIRequest) -> [String: Any] {
@@ -278,9 +299,12 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             "codexResetURL": ResetReferenceForecast.pageURL.absoluteString,
             "errors": store.radarSnapshot?.errors ?? []
         ]
+        let versionInfo = AppVersionInfo.current
         var result: [String: Any] = [
             "ok": true, "schemaVersion": 1,
-            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development",
+            "build": versionInfo.isPackaged ? versionInfo.buildNumber : "development",
+            "version": versionInfo.shortVersion,
+            "buildDate": versionInfo.buildDateText.map { $0 as Any } ?? NSNull(),
             "mode": store.mode.rawValue, "selectedAccount": store.selectedAccountID, "visible": panel.isVisible,
             "sizeLevel": CompactPanelSize.load().rawValue,
             "autoHideInactiveAccounts": store.autoHideInactiveAccounts,
@@ -335,6 +359,9 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         let radarItem = item("打开重置雷达", action: #selector(showRadar))
         radarItem.isEnabled = store.mode != .radar
         menu.addItem(radarItem)
+        let pricingItem = item("打开省钱灯", action: #selector(showPricing))
+        pricingItem.isEnabled = store.mode != .pricing
+        menu.addItem(pricingItem)
         menu.addItem(.separator())
         let refreshItem = item(store.currentPageIsRefreshing ? "正在刷新…" : "刷新当前页", action: #selector(refresh))
         refreshItem.isEnabled = !store.currentPageIsRefreshing
@@ -350,8 +377,12 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         menu.addItem(.separator())
         let autoHideItem = item("自动隐藏未打开应用的账户", action: #selector(toggleAutoHide))
         autoHideItem.state = store.autoHideInactiveAccounts ? .on : .off
-        autoHideItem.toolTip = "豆包、WorkBuddy 客户端未运行时，Mini 条不再为它们占位；总览页仍显示全部账户。"
+        autoHideItem.toolTip = "豆包、WorkBuddy、千问办公客户端未运行时，Mini 条不再为它们占位；总览页仍显示全部账户。"
         menu.addItem(autoHideItem)
+        let pricingRowItem = item("在 Mini 条显示省钱灯", action: #selector(togglePricingRow))
+        pricingRowItem.state = store.showsPricingRow ? .on : .off
+        pricingRowItem.toolTip = "显示当前最省的模型、DeepSeek 谷时/峰时状态；点这一行查看完整折扣与下次变价。"
+        menu.addItem(pricingRowItem)
         menu.addItem(item("打开余额配置文件", action: #selector(openBalanceConfig)))
         menu.addItem(item("隐藏浮窗（点击菜单栏图标找回）", action: #selector(hidePanel)))
         menu.addItem(item("恢复默认位置", action: #selector(resetPosition)))
@@ -392,14 +423,15 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
     @objc private func showBalance() { store.setMode(.balance) }
     @objc private func showQuota() { store.setMode(.quota) }
     @objc private func showProjects() { store.setMode(.projects) }
+    @objc private func showPricing() { store.setMode(.pricing) }
     @objc private func refresh() { refreshData() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func showAbout() {
-        let bundle = Bundle.main
-        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-        let alert = NSAlert(); alert.messageText = "算力环"; alert.informativeText = "版本 \(version)（构建 \(build)）\n显示账户实际额度与上海时区当天的本地 Token。\n唯一安装位置：~/Applications/算力环.app"; alert.addButton(withTitle: "好"); alert.runModal()
+        let version = AppVersionInfo.current
+        let alert = NSAlert(); alert.messageText = "算力环"
+        alert.informativeText = "\(version.aboutText)\n显示账户实际额度与上海时区当天的本地 Token。\n唯一安装位置：~/Applications/算力环.app\n更新日志：仓库根目录 CHANGELOG.md"
+        alert.addButton(withTitle: "好"); alert.runModal()
     }
 
     @objc private func changeSize(_ sender: NSMenuItem) {
@@ -412,6 +444,11 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
 
     @objc private func toggleAutoHide() {
         store.setAutoHideInactiveAccounts(!store.autoHideInactiveAccounts)
+        refreshHostedContent?()
+    }
+
+    @objc private func togglePricingRow() {
+        store.setShowsPricingRow(!store.showsPricingRow)
         refreshHostedContent?()
     }
 

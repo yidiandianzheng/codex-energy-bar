@@ -8,4 +8,5 @@ enum CompactActionTarget: Hashable {
     static let balance = Self.page(.balance)
     static let projects = Self.page(.projects)
     static let radar = Self.page(.radar)
+    static let pricing = Self.page(.pricing)
 }
