@@ -1,10 +1,14 @@
 import CoreGraphics
 
 enum EnergyPanelLayout {
-    static let expandedSize = CGSize(width: 420, height: 500)
-    /// Account cells sit in a three-column grid so six accounts (Codex plus five
-    /// sources) never squeeze their titles. Width stays 320: three columns of
-    /// ~100 pt hold "186.8" and "¥35.9" at the 20 pt headline without shrinking.
+    /// Expanded dashboard. Every tab scrolls as a whole page, so this is the
+    /// visible viewport rather than a content height: 540 pt keeps the account
+    /// summary plus two or three project rows above the fold on the usage tab.
+    static let expandedSize = CGSize(width: 420, height: 540)
+    /// Account cells sit in a three-column grid so seven accounts (Codex plus
+    /// six sources) never squeeze their titles. Width stays 320: three columns
+    /// of ~100 pt hold "186.8" and "¥35.9" at the 20 pt headline without
+    /// shrinking.
     static let compactBaseSize = CGSize(width: 320, height: 160)
     static let countdownRowHeight: CGFloat = 22
     static let pricingRowHeight: CGFloat = 22

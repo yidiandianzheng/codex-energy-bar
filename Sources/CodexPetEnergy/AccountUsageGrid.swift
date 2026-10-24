@@ -3,11 +3,14 @@ import SwiftUI
 /// Per-account usage strip on the "今日用量" page.
 ///
 /// It only prints figures each provider actually exposes: Codex has local token
-/// logs, 豆包 publishes the current window's remaining percentage, WorkBuddy and
-/// 千问办公 report spent/remaining credits, and DeepSeek just has a balance. No
-/// token number is invented for the latter four — that is why the caption states
-/// the data boundary and why sampling is required before "today's spend" can be
-/// shown.
+/// logs, 豆包 publishes the current window's remaining percentage, WorkBuddy,
+/// WorkBuddy AI, 百度搭子 and 千问办公 report spent/remaining credits, and
+/// DeepSeek just has a balance. No token number is invented for the rest — that
+/// is why the caption states the data boundary and why sampling is required
+/// before "today's spend" can be shown.
+///
+/// Four columns keep the strip to two rows for the seven accounts, so the
+/// project list below it keeps most of the page.
 struct AccountUsageGrid: View {
     let codexTokens: Int?
     let readings: [BalanceReading]
@@ -20,8 +23,8 @@ struct AccountUsageGrid: View {
                 Spacer()
                 Text("各自口径").font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3),
-                      alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4),
+                      alignment: .leading, spacing: 10) {
                 cell(codex)
                 cell(deepseek)
                 cell(doubao)
@@ -31,7 +34,7 @@ struct AccountUsageGrid: View {
                 cell(qwenwork)
             }
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
             .energyCardSurface()
             Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与 WorkBuddy AI、百度搭子、千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
                 .font(EnergyTypography.Detail.caption)
