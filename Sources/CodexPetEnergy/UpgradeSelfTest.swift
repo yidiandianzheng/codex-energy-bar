@@ -38,7 +38,7 @@ import Foundation
             expect(EnergyLogic.reading(from: RateLimitWindow(usedPercent: invalid, windowDurationMins: 300, resetsAt: nil)).remainingPercent == nil, "out-of-range Codex value stays unknown")
         }
 
-        for id in ["codex", "deepseek", "doubao", "workbuddy", "qwenwork"] {
+        for id in BalanceProvider.allCases.map(\.rawValue) + ["codex"] {
             let store = SelfTest.makeStore(now: now)
             store.activate(.account(id))
             expect(store.mode == .quota && store.selectedAccountID == id, "account action selects " + id)

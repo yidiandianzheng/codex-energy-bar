@@ -31,6 +31,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         panel = EnergyFloatingPanel(
             contentRect: CGRect(origin: .zero, size: EnergyPanelLayout.size(
                 for: .compact,
+                accounts: store.compactBalanceReadings.count,
                 showsCountdown: store.showsResetCountdown,
                 showsPricing: store.showsPricingRow
             )),
@@ -192,6 +193,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
     private func panelSize(for mode: EnergyPanelMode, showsCountdown: Bool? = nil, showsPricing: Bool? = nil) -> CGSize {
         EnergyPanelLayout.size(
             for: mode,
+            accounts: store.compactBalanceReadings.count,
             showsCountdown: showsCountdown ?? store.showsResetCountdown,
             showsPricing: showsPricing ?? store.showsPricingRow
         )

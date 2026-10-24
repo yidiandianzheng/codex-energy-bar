@@ -3,49 +3,51 @@
 算力环的版本号、构建号、构建日期与改动记录，方便核对正在使用的版本。
 
 - **版本号**：`Resources/Info.plist` 的 `CFBundleShortVersionString`，语义化版本（主.次.修订）。
-- **构建号**：`Resources/Info.plist` 的 `CFBundleVersion`，每标记一次新的本地构建递增；当前为第 75 版。
+- **构建号**：`Resources/Info.plist` 的 `CFBundleVersion`，每标记一次新的本地构建递增；当前为第 78 版。
 - **构建日期**：打包时由 `scripts/build-app.sh` 写入 `CFBundleBuildDate`（Asia/Shanghai 当天），源码中不写死。
-- 应用内查看位置：浮窗展开后的**顶部标题栏第三行**（`v1.4.0 · 第 75 版 · 构建 2026-10-23`）、**更多 → 关于 算力环**、以及 `energyctl status` 返回的 `version` / `build` / `buildDate` 字段。
+- 应用内查看位置：浮窗展开后的**顶部标题栏第三行**（`v1.4.1 · 第 78 版 · 构建 2026-10-24`）、**更多 → 关于 算力环**、以及 `energyctl status` 返回的 `version` / `build` / `buildDate` 字段。
 - 应用包运行时按 App 包内的真实值显示；直接 `swift run` 或快照测试等未打包运行时显示「开发版」，不虚构版本号。
 
 ## 版本速查
 
 | 版本 | 构建号 | 构建日期 | 状态 | 摘要 |
 | --- | --- | --- | --- | --- |
-| v1.4.1 | 76 | 2026-10-24 | 本地构建：未打 tag、未发布 | 新增 WorkBuddy AI（国际版）账户；今日用量改 3 列 2 行 |
+| v1.4.1 | 78 | 2026-10-24 | 本地构建：未打 tag、未发布 | 新增 WorkBuddy AI（国际版）与百度搭子账户；Mini 条 3 列多排、背景更透 |
 | v1.4.0 | 75 | 2026-10-23 | 已公开发布（Apple Silicon），发布日 2026-10-24 | 多账户总览、今日用量、重置雷达；更名「算力环」；新增版本信息与省钱灯 |
 | v1.3.4 | 72 | 2026-10-22 | 已公开发布（Apple Silicon） | 双源重置雷达；仓库更名后首个公开版 |
 
 自上一公开版到本版：版本号 +1 个次版本（1.3.4 → 1.4.0）；构建号 +3（72 → 75），即第 73、74、75 版均为 v1.4.0 的构建，其中第 75 版为公开发布版。更早的本地构建（第 35 版、第 71 版）未公开发布、只在本机备份中可见，不在此追溯。
 
-## v1.4.1（构建 76，构建日期 2026-10-24）· 本地构建
+## v1.4.1（构建 76 → 78，构建日期 2026-10-24）· 本地构建
 
-未打 tag、未发布。相对 v1.4.0：
+未打 tag、未发布。相对 v1.4.0，第 76 版加入 WorkBuddy AI 与多排界面，第 77 版调整透明度，第 78 版加入百度搭子：
 
 ### 新增账户
 
 - **WorkBuddy AI（国际版）**：与国内版并列的独立账户。两者走同一套 WBIPC 本机通道协议，区别只在配置目录——国内版读 `~/.workbuddy`，国际版读 `~/.workbuddy-ai`。应用仍不读取或保存任何 token，只向运行中的客户端查询它自己的订阅积分面板。
 - `WorkBuddyBalanceClient` 改为按 provider 参数化，不再硬编码国内版；`BalanceProvider` 新增 `workbuddyintl`。
 - `sources.json` 新增 `workbuddyintl.enabled` 开关，默认开启。
+- **百度搭子（DuMate）**：读取客户端本机登录态后查询官方积分接口 `api/dumate/points/quota_overview`，返回总积分、已用积分、套餐与赠送包到期时间、模型限流状态。Mini 条与详情页按积分口径展示。
+- `DuMateBalanceClient`：登录态解密在内存中完成（`auth.json` 的 `cookies` 为 base64，布局 `iv(12) + tag(16) + 密文`，密钥为同目录 32 字节 `.cookie-key`，AES-256-GCM、无 AAD），Cookie 不落盘、不外传；与豆包一致，只用登录态哈希作为「同一账户」判据，换号后今日用量自动重算基线。
+- `sources.json` 新增 `dumate.enabled` 开关，默认开启。
 
 ### 界面
 
-- 今日用量网格从单行 5 格改为 3 列 2 行，容纳 6 个账户；总览表按 provider 顺序自动多一行。
+- **Mini 条账户区改 3 列多排**：每行 3 个账户，行数按实际显示的账户数自动计算（3 个以内仍是一行），标题和数值不再被截断；窗口高度随之自适应（6 个账户为 320 × 182，7 个为 320 × 240）。
+- **浮窗背景更透**：浅色主题的白色叠加从 0.72 降到 0.52，深色从 0.16 降到 0.10，减少对桌面内容的遮挡；开启「降低透明度」辅助功能时仍使用不透明背景。
+- 今日用量网格从单行 5 格改为 3 列多排，容纳 6 个以上账户；总览表按 provider 顺序自动多一行。
 - 账户页顶部切换、Mini 条自动隐藏、使用建议标签都识别新账户（积分口径）。
 
 ### 文档
 
-- README 账户列表、今日用量口径与数据来源补充 WorkBuddy AI。
+- README 账户列表、今日用量口径与数据来源补充 WorkBuddy AI 与百度搭子。
 - `docs/价格与折扣.md` 补充 WorkBuddy AI 积分口径。
-
-### 未实现
-
-- **百度搭子（DuMate）**：额度接口已定位（`api/dumate/points/quota_overview`），但登录态由原生模块 `cookie_crypto.node` 加密（`auth.json` 的 `encryptedCookies` + `.cookie-key`），常规 AES-GCM / CBC / ChaCha 组合均无法解密，逆向原生模块成本过高。本版不包含该账户。
+- `docs/隐私与数据.md` 补充百度搭子登录态解密说明。
 
 ### 验证
 
 - `CodexPetEnergy --self-test` 通过。
-- `energyctl status` 返回 6 个账户，`workbuddyintl` 状态 `ok`、读数为「350 积分 · Free · 已用 0 / 350」。
+- `energyctl status` 返回 7 个账户：`workbuddyintl` 为「350 积分 · Free · 已用 0 / 350」，`dumate` 为「10,612.2 积分 · 套餐 剩 9,959.7 / 10,000 · 至 10月31日 · 赠送包 4 个」。
 
 ## v1.4.0（构建 75，构建日期 2026-10-23，发布日 2026-10-24）· 已公开发布
 

@@ -9,6 +9,7 @@ struct EnergyPanelView: View {
 
     var body: some View {
         let compactBase = EnergyPanelLayout.compactBaseSize(
+            accounts: store.compactBalanceReadings.count,
             showsCountdown: store.showsResetCountdown,
             showsPricing: store.showsPricingRow
         )

@@ -19,27 +19,41 @@ struct CompactEnergyBar: View {
     var showPricing: () -> Void = {}
 
     var body: some View {
+        let columns = EnergyPanelLayout.compactAccountColumns
+        let rows = stride(from: 0, to: readings.count, by: columns).map {
+            Array(readings[$0..<min($0 + columns, readings.count)])
+        }
         VStack(spacing: 0) {
-            // Row 1: one cell per account (Codex first), tap to open its page.
+            // Row 1..n: three accounts per row, tap to open that account's page.
             HStack(spacing: 0) {
                 PanelDragMark()
-                ForEach(Array(readings.enumerated()), id: \.element.id) { index, reading in
-                    if index > 0 {
-                        Rectangle().fill(EnergyVisualStyle.hairline)
-                            .frame(width: 0.5, height: 40)
-                            .accessibilityHidden(true)
+                VStack(spacing: 0) {
+                    ForEach(rows.indices, id: \.self) { rowIndex in
+                        HStack(spacing: 0) {
+                            ForEach(Array(rows[rowIndex].enumerated()), id: \.element.id) { index, reading in
+                                if index > 0 {
+                                    Rectangle().fill(EnergyVisualStyle.hairline)
+                                        .frame(width: 0.5, height: 34)
+                                        .accessibilityHidden(true)
+                                }
+                                CompactAccountCell(
+                                    reading: reading,
+                                    isRecommended: advice.recommendedID == reading.id,
+                                    target: .account(reading.id),
+                                    action: { showAccount(reading.id) }
+                                )
+                            }
+                            if rows[rowIndex].count < columns {
+                                ForEach(0..<(columns - rows[rowIndex].count), id: \.self) { _ in
+                                    Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+                                }
+                            }
+                        }
+                        .frame(height: EnergyPanelLayout.compactAccountRowHeight)
                     }
-                    CompactAccountCell(
-                        reading: reading,
-                        isRecommended: advice.recommendedID == reading.id,
-                        target: .account(reading.id),
-                        isDense: readings.count > 4,
-                        action: { showAccount(reading.id) }
-                    )
                 }
             }
             .padding(.horizontal, 4).padding(.vertical, 3)
-            .frame(maxWidth: .infinity).frame(height: EnergyPanelLayout.compactAccountRowHeight)
 
             // Row 2: local recommendation + today's Token.
             HStack(spacing: 0) {

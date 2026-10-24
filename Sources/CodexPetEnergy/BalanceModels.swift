@@ -90,6 +90,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
     case doubao
     case workbuddy
     case workbuddyintl
+    case dumate
     case qwenwork
 
     var id: String { rawValue }
@@ -100,6 +101,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .doubao: "豆包"
         case .workbuddy: "WorkBuddy"
         case .workbuddyintl: "WorkBuddy AI"
+        case .dumate: "百度搭子"
         case .qwenwork: "千问办公"
         }
     }
@@ -110,6 +112,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .doubao: "bubble.left.and.bubble.right"
         case .workbuddy: "briefcase"
         case .workbuddyintl: "globe"
+        case .dumate: "person.2.badge.gearshape"
         case .qwenwork: "wand.and.stars"
         }
     }
@@ -120,6 +123,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .doubao: URL(string: "https://www.doubao.com/chat/")
         case .workbuddy: URL(string: "https://www.workbuddy.cn/profile/plan")
         case .workbuddyintl: nil
+        case .dumate: URL(string: "https://console.bce.baidu.com/dumate")
         case .qwenwork: URL(string: "https://qwenwork.cn")
         }
     }

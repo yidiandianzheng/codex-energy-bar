@@ -13,10 +13,12 @@ struct BalanceConfig: Equatable {
     var doubaoProductLine: String?
     var workBuddyEnabled: Bool
     var workBuddyIntlEnabled: Bool
+    var duMateEnabled: Bool
     var qwenWorkEnabled: Bool
 
     static let empty = BalanceConfig(deepSeekAPIKey: nil, doubaoCookie: nil, doubaoProductLine: nil,
-                                     workBuddyEnabled: true, workBuddyIntlEnabled: true, qwenWorkEnabled: true)
+                                     workBuddyEnabled: true, workBuddyIntlEnabled: true,
+                                     duMateEnabled: true, qwenWorkEnabled: true)
 
     static var directoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -51,6 +53,10 @@ struct BalanceConfig: Equatable {
             if let intl = object["workbuddyintl"] as? [String: Any],
                let enabled = intl["enabled"] as? Bool {
                 config.workBuddyIntlEnabled = enabled
+            }
+            if let dumate = object["dumate"] as? [String: Any],
+               let enabled = dumate["enabled"] as? Bool {
+                config.duMateEnabled = enabled
             }
             if let qwenwork = object["qwenwork"] as? [String: Any],
                let enabled = qwenwork["enabled"] as? Bool {
@@ -101,6 +107,7 @@ struct BalanceConfig: Equatable {
                   "doubao": { "cookie": "", "productLine": "" },
                   "workbuddy": { "enabled": true },
                   "workbuddyintl": { "enabled": true },
+                  "dumate": { "enabled": true },
                   "qwenwork": { "enabled": true }
                 }
                 """

@@ -14,7 +14,7 @@ struct EnergyPanelSurfaceModifier: ViewModifier {
                     shape.fill(EnergyVisualStyle.panelBackground)
                 } else {
                     EnergyPanelMaterial()
-                        .overlay(colorScheme == .dark ? Color.black.opacity(0.16) : Color.white.opacity(0.72))
+                        .overlay(colorScheme == .dark ? Color.black.opacity(0.10) : Color.white.opacity(0.52))
                 }
             }
             .overlay {

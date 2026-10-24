@@ -27,12 +27,13 @@ struct AccountUsageGrid: View {
                 cell(doubao)
                 cell(workbuddy)
                 cell(workbuddyIntl)
+                cell(dumate)
                 cell(qwenwork)
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 10)
             .energyCardSurface()
-            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与 WorkBuddy AI、千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
+            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与 WorkBuddy AI、百度搭子、千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
                 .font(EnergyTypography.Detail.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -133,6 +134,22 @@ struct AccountUsageGrid: View {
         let remaining = reading.percent.map { "余 \($0)%" } ?? ""
         return Entry(
             title: "WorkBuddy AI",
+            value: spent,
+            note: spent == "—" ? "今日观测未知" : (remaining.isEmpty ? "今日积分" : "今日积分 · \(remaining)")
+        )
+    }
+
+    private var dumate: Entry {
+        guard let reading = reading("dumate") else {
+            return Entry(title: "百度搭子", value: "—", note: "未运行")
+        }
+        if case .stale = reading.state {
+            return Entry(title: "百度搭子", value: "—", note: "上次积分 " + (reading.valueText ?? "—"))
+        }
+        let spent = todayUsage.valueText(for: "dumate") ?? "—"
+        let remaining = reading.percent.map { "余 \($0)%" } ?? ""
+        return Entry(
+            title: "百度搭子",
             value: spent,
             note: spent == "—" ? "今日观测未知" : (remaining.isEmpty ? "今日积分" : "今日积分 · \(remaining)")
         )

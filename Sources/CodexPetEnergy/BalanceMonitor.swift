@@ -14,6 +14,7 @@ final class BalanceMonitor {
     private let workBuddy = WorkBuddyBalanceClient(provider: .workbuddy, configDirectoryName: ".workbuddy")
     private let workBuddyIntl = WorkBuddyBalanceClient(provider: .workbuddyintl, configDirectoryName: ".workbuddy-ai")
     private let doubao = DoubaoBalanceClient()
+    private let duMate = DuMateBalanceClient()
     private let qwenWork = QwenWorkBalanceClient()
     private var timer: DispatchSourceTimer?
     private var inFlight: [BalanceProvider: UUID] = [:]
@@ -84,6 +85,9 @@ final class BalanceMonitor {
         case .workbuddyintl:
             if config.workBuddyIntlEnabled { workBuddyIntl.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭 WorkBuddy AI 读取")) }
+        case .dumate:
+            if config.duMateEnabled { duMate.fetch(completion: completion) }
+            else { completion(provider.unconfigured("已在配置中关闭百度搭子读取")) }
         case .qwenwork:
             if config.qwenWorkEnabled { qwenWork.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭千问办公读取")) }

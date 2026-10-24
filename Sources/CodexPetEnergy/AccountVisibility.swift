@@ -7,9 +7,9 @@ import Foundation
 /// page keeps the full list, so a hidden account never becomes unreachable.
 ///
 /// Codex is the app's primary account and DeepSeek is a server-side balance, so
-/// neither depends on another app being open. 豆包、WorkBuddy 和千问办公 can only
-/// be read while their own client is running, which is exactly the state this
-/// policy follows.
+/// neither depends on another app being open. 豆包、WorkBuddy、百度搭子 和千问办公
+/// can only be read while their own client is running, which is exactly the
+/// state this policy follows.
 enum AccountVisibility {
     /// Account id → bundle identifier of the client app whose local state is
     /// read. Kept pure here (no AppKit) so the policy is unit-testable.
@@ -17,6 +17,7 @@ enum AccountVisibility {
         "doubao": "com.work.pc.doubao",
         "workbuddy": "com.tencent.workbuddy.mac",
         "workbuddyintl": "com.workbuddy.workbuddy-ai",
+        "dumate": "com.baidu.qianfan.desktop",
         "qwenwork": "cn.qwenwork.desktop.mac",
     ]
 

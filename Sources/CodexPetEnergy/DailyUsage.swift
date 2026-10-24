@@ -28,7 +28,7 @@ struct DailyUsageLedger: Codable, Equatable {
     mutating func record(_ reading: BalanceReading, now: Date) {
         roll(to: now)
         let id = reading.id
-        guard id == "deepseek" || id == "workbuddy" || id == "qwenwork" else { return }
+        guard id == "deepseek" || id == "workbuddy" || id == "dumate" || id == "qwenwork" else { return }
         if let identity = reading.sourceIdentity, let previous = identities[id], identity != previous {
             moneySpent[id] = nil; pointsSpent[id] = nil; samples[id] = nil; coverageStart[id] = nil
             identities[id] = identity
@@ -110,7 +110,8 @@ struct TodayUsageSnapshot: Equatable {
         case BalanceProvider.deepseek.id:
             guard let spend = moneySpent[id], let prefix = currencyPrefixes[id] else { return nil }
             return prefix + (BalanceFormatting.money(String(spend)) ?? "—")
-        case BalanceProvider.workbuddy.id, BalanceProvider.workbuddyintl.id, BalanceProvider.qwenwork.id:
+        case BalanceProvider.workbuddy.id, BalanceProvider.workbuddyintl.id,
+             BalanceProvider.dumate.id, BalanceProvider.qwenwork.id:
             guard let spend = pointsSpent[id] else { return nil }
             return BalanceFormatting.credits(String(spend))
         default: return nil
@@ -122,6 +123,7 @@ struct TodayUsageSnapshot: Equatable {
         case BalanceProvider.deepseek.id: "余额减少 · 今日观测"
         case BalanceProvider.workbuddy.id: "积分 · 今日观测"
         case BalanceProvider.workbuddyintl.id: "积分 · 今日观测"
+        case BalanceProvider.dumate.id: "积分 · 今日观测"
         case BalanceProvider.qwenwork.id: "Credits · 今日观测"
         default: ""
         }

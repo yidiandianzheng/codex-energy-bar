@@ -93,14 +93,14 @@ struct CompactAccountCell: View {
                 // the number the user checks against 千问办公 itself.
                 return String(format: "%.1f", number)
             }
-            if isDense, ["deepseek", "workbuddy", "workbuddyintl"].contains(reading.id),
+            if isDense, ["deepseek", "workbuddy", "workbuddyintl", "dumate"].contains(reading.id),
                let number = numericValue {
                 return compactDecimal(number)
             }
             switch reading.id {
             case "deepseek":
                 if let number = numericValue { return compactDecimal(number) }
-            case "workbuddy", "workbuddyintl":
+            case "workbuddy", "workbuddyintl", "dumate":
                 if let number = numericValue { return compactDecimal(number) }
             default:
                 break
@@ -127,7 +127,7 @@ struct CompactAccountCell: View {
             return "\(other.shortTag) \(other.remainingPercent)%"
         }
         switch reading.id {
-        case "workbuddy", "workbuddyintl": return "积分"
+        case "workbuddy", "workbuddyintl", "dumate": return "积分"
         case "deepseek": return "余额"
         case "qwenwork": return "Credits"
         default: return nil

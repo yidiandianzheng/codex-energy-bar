@@ -291,9 +291,10 @@ struct AccountDetailPanel: View {
     private func usageText(_ reading: BalanceReading) -> String {
         if reading.id == "doubao", let percent = reading.percent { return "\(100 - percent)%" }
         guard let value = todayUsage.valueText(for: reading.id) else {
-            return (reading.id == "workbuddy" || reading.id == "workbuddyintl" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
+            return (reading.id == "workbuddy" || reading.id == "workbuddyintl"
+                || reading.id == "dumate" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
         }
-        if reading.id == "workbuddy" || reading.id == "workbuddyintl" { return value + " 积分" }
+        if reading.id == "workbuddy" || reading.id == "workbuddyintl" || reading.id == "dumate" { return value + " 积分" }
         if reading.id == "qwenwork" { return value + " Credits" }
         let prefix = todayUsage.currencyPrefixes[reading.id] ?? reading.unitPrefix ?? ""
         return prefix.isEmpty || value.hasPrefix(prefix) ? value : prefix + value
@@ -303,6 +304,7 @@ struct AccountDetailPanel: View {
         switch reading.id {
         case "workbuddy": "打开 WorkBuddy 客户端后会自动恢复读取。"
         case "workbuddyintl": "打开 WorkBuddy AI 客户端后会自动恢复读取。"
+        case "dumate": "打开百度搭子客户端并保持登录后重试。"
         case "qwenwork": "打开千问办公客户端并保持登录后重试。"
         case "doubao": "打开豆包客户端并保持登录后重试。"
         case "deepseek": "在 sources.json 配置 API Key 后重试。"
@@ -316,6 +318,7 @@ struct AccountDetailPanel: View {
         case "deepseek": "按余额计费，没有额度窗口与重置时间。"
         case "workbuddy": "需要 WorkBuddy 客户端保持运行；不读取或保存其 token。"
         case "workbuddyintl": "需要 WorkBuddy AI 客户端保持运行；通过其本机 IPC 只读查询积分，不读取或保存 token。"
+        case "dumate": "读取百度搭子客户端本机登录态后查询官方积分接口；Cookie 只在内存中解密使用，不落盘、不外传。"
         case "qwenwork": "通过千问办公客户端本机 MCP 通道只读 Credits 用量；不读取或保存登录 token。"
         default: reading.id == BalanceReading.codexID
             ? "来自本机 Codex 账户额度，与本地 Token 独立计量。"
