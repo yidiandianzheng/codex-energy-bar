@@ -1,6 +1,8 @@
 .DS_Store
 .build/
 .build-local/
+.build-verify/
+.tmp-build/
 dist/
 qa/
 DerivedData/

@@ -2,15 +2,15 @@
 
 算力环（Compute Ring）在 Mac 桌面随时查看 Codex 账户剩余额度、今日项目 Token、额度重置预测，以及 DeepSeek、豆包、WorkBuddy、千问办公的余额/额度。
 
-[已公开版本 v1.3.4（Apple Silicon）](https://github.com/yidiandianzheng/codex-energy-bar/releases/download/v1.3.4/CodexEnergyBar-v1.3.4-macOS-arm64.zip) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/yidiandianzheng/codex-energy-bar/issues)
+[最新版本 v1.4.0（Apple Silicon）](https://github.com/yidiandianzheng/codex-energy-bar/releases/download/v1.4.0/CodexEnergyBar-v1.4.0-macOS-arm64.zip) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/yidiandianzheng/codex-energy-bar/issues)
 
 ![算力环紧凑界面，演示数据](docs/images/demo-mini.png)
 
-*截图使用演示数据。本文描述本地 v1.4.0 候选源码（第 75 版，构建日期 2026-10-23）；上方 v1.3.4 链接为已有公开版本，不包含本轮全部改动。本轮未发布、未打 tag。*
+*截图使用演示数据。本文描述 v1.4.0（第 75 版，构建日期 2026-10-23，公开发布 2026-10-24）。*
 
 [浅色总览演示](docs/images/upgrade-overview-light-demo.png) · [深色总览演示](docs/images/upgrade-overview-dark-demo.png)
 
-当前候选：**v1.4.0 · 第 75 版 · 构建 2026-10-23**（建议公开发布日 2026-10-24，待定）。展开浮窗后标题栏第三行即可核对版本，完整记录见[更新日志](CHANGELOG.md)。
+当前版本：**v1.4.0 · 第 75 版 · 构建 2026-10-23**（公开发布 2026-10-24）。展开浮窗后标题栏第三行即可核对版本，完整记录见[更新日志](CHANGELOG.md)。
 
 ## 功能
 
@@ -79,10 +79,10 @@
 
 | 版本 | 构建号 | 构建日期 | 状态 |
 | --- | --- | --- | --- |
-| v1.4.0 | 75 | 2026-10-23 | 本地候选：未打 tag、未发布；建议公开发布日 2026-10-24（待定） |
+| v1.4.0 | 75 | 2026-10-23 | 已公开发布（Apple Silicon），发布日 2026-10-24 |
 | v1.3.4 | 72 | 2026-10-22 | 已公开发布（Apple Silicon） |
 
-完整改动与更早版本记录见 [CHANGELOG.md](CHANGELOG.md)。从 v1.3.4 到当前候选：版本号 1.3.4 → 1.4.0；构建号 72 → 75（第 73、74、75 版均为本轮构建）。应用内可在标题栏第三行、「更多 → 关于 算力环」或 `energyctl status` 查看当前构建的版本号、第几版与构建日期。
+完整改动与更早版本记录见 [CHANGELOG.md](CHANGELOG.md)。从 v1.3.4 到 v1.4.0：版本号 1.3.4 → 1.4.0；构建号 72 → 75（第 73、74、75 版均为本轮构建）。应用内可在标题栏第三行、「更多 → 关于 算力环」或 `energyctl status` 查看当前构建的版本号、第几版与构建日期。
 
 ## 从源码构建
 
