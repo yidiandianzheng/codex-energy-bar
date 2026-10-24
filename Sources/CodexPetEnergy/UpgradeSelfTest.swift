@@ -50,7 +50,7 @@ import Foundation
             expect(pointer.finish(at: CGPoint(x: 10, y: 0), target: .account(id)) == nil, "drag cancels navigation")
         }
         expect(EnergyRefreshRequest.forPage(.balance, accountID: "deepseek").codex, "overview refresh includes Codex")
-        expect(EnergyRefreshRequest.forPage(.projects, accountID: "deepseek").balances.count == 4, "usage refresh includes visible balance sources")
+        expect(EnergyRefreshRequest.forPage(.projects, accountID: "deepseek").balances.count == BalanceProvider.allCases.count, "usage refresh includes visible balance sources")
         let bonus = BalanceReading(id: "doubao", title: "豆包", systemImage: "bubble.left", valueText: "80", unitPrefix: nil, unitSuffix: "%", caption: nil, detail: nil, percent: 80,
             windows: [BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 80, resetAt: nil), BalanceWindowReading(id: "D7", title: "7 天", remainingPercent: 80, resetAt: nil), BalanceWindowReading(id: "INC-H5", title: "赠送", remainingPercent: 1, resetAt: nil)], state: .ok, sourceURL: nil, updatedAt: now)
         expect(AIUsageAdvisor.level(for: bonus, now: now) == .ample, "independent reward pool does not constrain personal quota")

@@ -1,21 +1,21 @@
 # 算力环
 
-算力环（Compute Ring）在 Mac 桌面随时查看 Codex 账户剩余额度、今日项目 Token、额度重置预测，以及 DeepSeek、豆包、WorkBuddy、千问办公的余额/额度。
+算力环（Compute Ring）在 Mac 桌面随时查看 Codex 账户剩余额度、今日项目 Token、额度重置预测，以及 DeepSeek、豆包、WorkBuddy、WorkBuddy AI、千问办公的余额/额度。
 
 [最新版本 v1.4.0（Apple Silicon）](https://github.com/yidiandianzheng/codex-energy-bar/releases/download/v1.4.0/CodexEnergyBar-v1.4.0-macOS-arm64.zip) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/yidiandianzheng/codex-energy-bar/issues)
 
 ![算力环紧凑界面，演示数据](docs/images/demo-mini.png)
 
-*截图使用演示数据。本文描述 v1.4.0（第 75 版，构建日期 2026-10-23，公开发布 2026-10-24）。*
+*截图使用演示数据。本文描述 v1.4.1（第 76 版，构建日期 2026-10-24，本地构建、尚未发布）；上方下载链接仍为已公开的 v1.4.0。*
 
 [浅色总览演示](docs/images/upgrade-overview-light-demo.png) · [深色总览演示](docs/images/upgrade-overview-dark-demo.png)
 
-当前版本：**v1.4.0 · 第 75 版 · 构建 2026-10-23**（公开发布 2026-10-24）。展开浮窗后标题栏第三行即可核对版本，完整记录见[更新日志](CHANGELOG.md)。
+当前版本：**v1.4.1 · 第 76 版 · 构建 2026-10-24**（本地构建，尚未发布）。展开浮窗后标题栏第三行即可核对版本，完整记录见[更新日志](CHANGELOG.md)。
 
 ## 功能
 
-- **账户**：顶部切换 Codex / DeepSeek / 豆包 / WorkBuddy / 千问办公，查看选中账户的额度细节；Codex 显示各窗口重置时间与接口提供的重置券信息。
-- **今日用量**：明确区分 Codex 今日本机 Token、豆包本时段用量、DeepSeek 今日观测消耗；WorkBuddy 与千问办公身份或基线无法确认时明确显示今日观测未知，其详情保留接口提供的本周期用量。缺少可信基线时显示未知。下方按项目统计本机当天 Token。
+- **账户**：顶部切换 Codex / DeepSeek / 豆包 / WorkBuddy / WorkBuddy AI / 千问办公，查看选中账户的额度细节；Codex 显示各窗口重置时间与接口提供的重置券信息。
+- **今日用量**：明确区分 Codex 今日本机 Token、豆包本时段用量、DeepSeek 今日观测消耗；WorkBuddy、WorkBuddy AI 与千问办公身份或基线无法确认时明确显示今日观测未知，其详情保留接口提供的本周期用量。缺少可信基线时显示未知。下方按项目统计本机当天 Token。
 - **重置雷达**：参考两个免费公开来源；有效时间预告标为“来源预告”，与预测概率分开显示。撤回、完成或过期后清除相关预告。
 - **总览**：四列展示账户与状态、剩余、用量、恢复。Codex 以当前 5 小时窗口为主数字、周额度作副行，豆包以当前时段为主并核对全部个人套餐限制；使用建议仍按各账户最紧的窗口判断。金额保留原币种；DeepSeek 优先读取人民币（CNY），千问办公显示 Credits 余额（保留 1 位小数；有套餐总额时附剩余百分比）。点行进入对应账户，DeepSeek 直接展示金额。
 - **使用建议**：Mini 条与总览页根据剩余额度、余额和重置时间，用本机规则推荐现在优先用哪个 AI（不接外部 API、不联网计算）。
@@ -51,11 +51,12 @@
 
 账户额度来自本机 Codex 的 `account/rateLimits/read`。读取失败保留上次成功值并标记；Codex 超过 3 分钟、其他余额超过 15 分钟未成功更新时退出当前推荐，应用时钟会自动更新状态。所有限制窗口均有可用额度时才推荐，全部不可用时不指定账户。
 
-总览页读取四个额外账户（分别独立、失败互不影响）：
+总览页读取五个额外账户（分别独立、失败互不影响）：
 
 - **DeepSeek**：官方 `https://api.deepseek.com/user/balance`，使用本机已有的 API Key（可在 `~/.config/codex-energy-bar/sources.json` 指定）。
 - **豆包**：经 macOS 钥匙串授权后，在本机内存中解密豆包客户端自己的登录 Cookie，读取会员额度窗口；Cookie 不落盘。
 - **WorkBuddy**：通过 WorkBuddy 客户端自己的本机 IPC 只读查询订阅积分，应用不读取或保存其 token；WorkBuddy 客户端需要保持运行。
+- **WorkBuddy AI**（国际版）：与国内版走同一套本机 IPC 协议，只是读取 `~/.workbuddy-ai` 下的通道配置；同样不读取或保存其 token，客户端需要保持运行。
 - **千问办公**：通过千问办公客户端自己的本机 MCP 通道（Unix socket）只读查询 Credits 用量，应用不读取、解密或保存其登录 token；客户端需要保持运行。
 
 省钱灯使用应用内置的静态价格表（核对日期 2026-10-23），不请求价格页；DeepSeek 峰谷、周末与法定节假日规则、WorkBuddy 积分折扣和千问渠道活动都写在对应行内，价格变动后更新应用或本地数据。
@@ -79,10 +80,11 @@
 
 | 版本 | 构建号 | 构建日期 | 状态 |
 | --- | --- | --- | --- |
+| v1.4.1 | 76 | 2026-10-24 | 本地构建：新增 WorkBuddy AI（国际版）账户；尚未发布 |
 | v1.4.0 | 75 | 2026-10-23 | 已公开发布（Apple Silicon），发布日 2026-10-24 |
 | v1.3.4 | 72 | 2026-10-22 | 已公开发布（Apple Silicon） |
 
-完整改动与更早版本记录见 [CHANGELOG.md](CHANGELOG.md)。从 v1.3.4 到 v1.4.0：版本号 1.3.4 → 1.4.0；构建号 72 → 75（第 73、74、75 版均为本轮构建）。应用内可在标题栏第三行、「更多 → 关于 算力环」或 `energyctl status` 查看当前构建的版本号、第几版与构建日期。
+完整改动与更早版本记录见 [CHANGELOG.md](CHANGELOG.md)。从 v1.3.4 到 v1.4.1：版本号 1.3.4 → 1.4.0 → 1.4.1；构建号 72 → 75 → 76。应用内可在标题栏第三行、「更多 → 关于 算力环」或 `energyctl status` 查看当前构建的版本号、第几版与构建日期。
 
 ## 从源码构建
 

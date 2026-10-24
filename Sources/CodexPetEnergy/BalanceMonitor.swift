@@ -11,7 +11,8 @@ final class BalanceMonitor {
     private let queue = DispatchQueue(label: "codex.pet.energy.balance")
     private let workers = DispatchQueue(label: "codex.pet.energy.balance.fetch", attributes: .concurrent)
     private let deepSeek = DeepSeekBalanceClient()
-    private let workBuddy = WorkBuddyBalanceClient()
+    private let workBuddy = WorkBuddyBalanceClient(provider: .workbuddy, configDirectoryName: ".workbuddy")
+    private let workBuddyIntl = WorkBuddyBalanceClient(provider: .workbuddyintl, configDirectoryName: ".workbuddy-ai")
     private let doubao = DoubaoBalanceClient()
     private let qwenWork = QwenWorkBalanceClient()
     private var timer: DispatchSourceTimer?
@@ -80,6 +81,9 @@ final class BalanceMonitor {
         case .workbuddy:
             if config.workBuddyEnabled { workBuddy.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭 WorkBuddy 读取")) }
+        case .workbuddyintl:
+            if config.workBuddyIntlEnabled { workBuddyIntl.fetch(completion: completion) }
+            else { completion(provider.unconfigured("已在配置中关闭 WorkBuddy AI 读取")) }
         case .qwenwork:
             if config.qwenWorkEnabled { qwenWork.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭千问办公读取")) }

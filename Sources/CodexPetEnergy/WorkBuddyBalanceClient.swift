@@ -12,21 +12,21 @@ import CoreFoundation
 /// `~/.workbuddy/wbipc/endpoint.json`, with a mutual HMAC-SHA256 handshake
 /// (client and host each prove possession of the ticket in that file).
 enum WorkBuddyBalanceParser {
-    static func reading(from body: Data, now: Date = .now) -> BalanceReading {
+    static func reading(from body: Data, provider: BalanceProvider = .workbuddy, now: Date = .now) -> BalanceReading {
         guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
-            return BalanceProvider.workbuddy.failed("返回数据无法解析")
+            return provider.failed("返回数据无法解析")
         }
         if let code = object["code"] as? Int, code != 0 {
             let message = (object["msg"] as? String) ?? (object["message"] as? String) ?? "业务错误 \(code)"
-            return BalanceProvider.workbuddy.failed(message)
+            return provider.failed(message)
         }
         guard let data = object["data"] as? [String: Any] else {
-            return BalanceProvider.workbuddy.failed("返回数据缺少额度信息")
+            return provider.failed("返回数据缺少额度信息")
         }
         guard let totalRaw = stringValue(data["TotalCredits"]),
               let numeric = doubleValue(data["TotalCredits"]),
               let credits = BalanceFormatting.credits(totalRaw) else {
-            return BalanceProvider.workbuddy.failed("额度数值缺失")
+            return provider.failed("额度数值缺失")
         }
         let plan = stringValue(data["SubscriptionPackageName"]) ?? "未识别套餐"
         let packages = data["Packages"] as? [[String: Any]] ?? []
@@ -47,9 +47,9 @@ enum WorkBuddyBalanceParser {
         }
         let percent = used.flatMap { capacity > 0 && capacity <= 1e15 ? BalanceFormatting.percent((capacity - $0) / capacity * 100) : nil }
         return BalanceReading(
-            id: BalanceProvider.workbuddy.id,
-            title: BalanceProvider.workbuddy.title,
-            systemImage: BalanceProvider.workbuddy.systemImage,
+            id: provider.id,
+            title: provider.title,
+            systemImage: provider.systemImage,
             valueText: credits,
             unitPrefix: nil,
             unitSuffix: " 积分",
@@ -59,7 +59,7 @@ enum WorkBuddyBalanceParser {
             usedText: usedCredits,
             windows: [],
             state: .ok,
-            sourceURL: BalanceProvider.workbuddy.sourceURL,
+            sourceURL: provider.sourceURL,
             updatedAt: now, numericValue: numeric, numericUsedValue: used, lastAttemptAt: now
         )
     }
@@ -81,7 +81,18 @@ enum WorkBuddyBalanceParser {
 }
 
 final class WorkBuddyBalanceClient {
-    private let queue = DispatchQueue(label: "codex.pet.energy.balance.workbuddy")
+    /// Which account this client reads and where that client keeps its WBIPC
+    /// endpoint. The CN build stores it under `~/.workbuddy`, the international
+    /// build under `~/.workbuddy-ai`; the wire protocol is identical.
+    let provider: BalanceProvider
+    let configDirectoryName: String
+    private let queue: DispatchQueue
+
+    init(provider: BalanceProvider = .workbuddy, configDirectoryName: String = ".workbuddy") {
+        self.provider = provider
+        self.configDirectoryName = configDirectoryName
+        self.queue = DispatchQueue(label: "codex.pet.energy.balance.\(provider.rawValue)")
+    }
 
     func fetch(completion: @escaping (BalanceReading) -> Void) {
         queue.async {
@@ -93,24 +104,22 @@ final class WorkBuddyBalanceClient {
     }
 
     private func capture() -> BalanceReading {
-        guard let discovery = Self.discovery() else {
-            return BalanceProvider.workbuddy.failed("WorkBuddy 未运行（找不到本地通道）")
+        guard let discovery = discovery() else {
+            return provider.failed("\(provider.title) 未运行（找不到本地通道）")
         }
         do {
             let body = try WbipcConnection(endpoint: discovery.endpoint, ticket: discovery.ticket).fetchResourceSummary()
-            return WorkBuddyBalanceParser.reading(from: body)
+            return WorkBuddyBalanceParser.reading(from: body, provider: provider)
         } catch let error as WbipcError {
-            return BalanceProvider.workbuddy.failed(error.displayMessage)
+            return provider.failed(error.displayMessage)
         } catch {
-            return BalanceProvider.workbuddy.failed("读取失败：\(error.localizedDescription)")
+            return provider.failed("读取失败：\(error.localizedDescription)")
         }
     }
 
-    private static func discovery() -> (endpoint: String, ticket: String)? {
+    private func discovery() -> (endpoint: String, ticket: String)? {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let configDirectory = ProcessInfo.processInfo.environment["WORKBUDDY_CONFIG_DIR"]
-            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
-            ?? home.appendingPathComponent(".workbuddy", isDirectory: true)
+        let configDirectory = home.appendingPathComponent(configDirectoryName, isDirectory: true)
         let url = configDirectory.appendingPathComponent("wbipc/endpoint.json")
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

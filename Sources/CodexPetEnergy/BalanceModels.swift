@@ -89,6 +89,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
     case deepseek
     case doubao
     case workbuddy
+    case workbuddyintl
     case qwenwork
 
     var id: String { rawValue }
@@ -98,6 +99,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .deepseek: "DeepSeek"
         case .doubao: "豆包"
         case .workbuddy: "WorkBuddy"
+        case .workbuddyintl: "WorkBuddy AI"
         case .qwenwork: "千问办公"
         }
     }
@@ -107,6 +109,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .deepseek: "sparkles"
         case .doubao: "bubble.left.and.bubble.right"
         case .workbuddy: "briefcase"
+        case .workbuddyintl: "globe"
         case .qwenwork: "wand.and.stars"
         }
     }
@@ -116,6 +119,7 @@ enum BalanceProvider: String, CaseIterable, Identifiable {
         case .deepseek: URL(string: "https://platform.deepseek.com/usage")
         case .doubao: URL(string: "https://www.doubao.com/chat/")
         case .workbuddy: URL(string: "https://www.workbuddy.cn/profile/plan")
+        case .workbuddyintl: nil
         case .qwenwork: URL(string: "https://qwenwork.cn")
         }
     }

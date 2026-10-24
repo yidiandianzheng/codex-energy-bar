@@ -86,7 +86,7 @@ enum AIUsageAdvisor {
         let level: UsageLevel = percent >= 30 ? .ample : percent >= 10 ? .tight : .critical
         let preference: Double = reading.id == "doubao" ? 12 : reading.id == "codex" ? 8 : 4
         let label = limiting.map(compactWindowLabel)
-            ?? (reading.id == "workbuddy" ? "积分" : reading.id == "qwenwork" ? "Credits" : "额度")
+            ?? (reading.id == "workbuddy" || reading.id == "workbuddyintl" ? "积分" : reading.id == "qwenwork" ? "Credits" : "额度")
         let compactReason = "\(label)剩 \(percent)%"
         let reason = compactReason + resetText(limiting?.resetAt, now: now)
         return Candidate(id: reading.id, title: reading.title, level: level,

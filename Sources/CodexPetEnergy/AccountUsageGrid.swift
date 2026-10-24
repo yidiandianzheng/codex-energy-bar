@@ -20,21 +20,19 @@ struct AccountUsageGrid: View {
                 Spacer()
                 Text("各自口径").font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 0) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3),
+                      alignment: .leading, spacing: 12) {
                 cell(codex)
-                divider
                 cell(deepseek)
-                divider
                 cell(doubao)
-                divider
                 cell(workbuddy)
-                divider
+                cell(workbuddyIntl)
                 cell(qwenwork)
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 10)
             .energyCardSurface()
-            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
+            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与 WorkBuddy AI、千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
                 .font(EnergyTypography.Detail.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -119,6 +117,22 @@ struct AccountUsageGrid: View {
         let remaining = reading.percent.map { "余 \($0)%" } ?? ""
         return Entry(
             title: "WorkBuddy",
+            value: spent,
+            note: spent == "—" ? "今日观测未知" : (remaining.isEmpty ? "今日积分" : "今日积分 · \(remaining)")
+        )
+    }
+
+    private var workbuddyIntl: Entry {
+        guard let reading = reading("workbuddyintl") else {
+            return Entry(title: "WorkBuddy AI", value: "—", note: "未运行")
+        }
+        if case .stale = reading.state {
+            return Entry(title: "WorkBuddy AI", value: "—", note: "上次积分 " + (reading.valueText ?? "—"))
+        }
+        let spent = todayUsage.valueText(for: "workbuddyintl") ?? "—"
+        let remaining = reading.percent.map { "余 \($0)%" } ?? ""
+        return Entry(
+            title: "WorkBuddy AI",
             value: spent,
             note: spent == "—" ? "今日观测未知" : (remaining.isEmpty ? "今日积分" : "今日积分 · \(remaining)")
         )

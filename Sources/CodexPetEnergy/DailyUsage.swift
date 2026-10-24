@@ -110,7 +110,7 @@ struct TodayUsageSnapshot: Equatable {
         case BalanceProvider.deepseek.id:
             guard let spend = moneySpent[id], let prefix = currencyPrefixes[id] else { return nil }
             return prefix + (BalanceFormatting.money(String(spend)) ?? "—")
-        case BalanceProvider.workbuddy.id, BalanceProvider.qwenwork.id:
+        case BalanceProvider.workbuddy.id, BalanceProvider.workbuddyintl.id, BalanceProvider.qwenwork.id:
             guard let spend = pointsSpent[id] else { return nil }
             return BalanceFormatting.credits(String(spend))
         default: return nil
@@ -121,6 +121,7 @@ struct TodayUsageSnapshot: Equatable {
         case BalanceReading.codexID: "Token · 今日本机"
         case BalanceProvider.deepseek.id: "余额减少 · 今日观测"
         case BalanceProvider.workbuddy.id: "积分 · 今日观测"
+        case BalanceProvider.workbuddyintl.id: "积分 · 今日观测"
         case BalanceProvider.qwenwork.id: "Credits · 今日观测"
         default: ""
         }

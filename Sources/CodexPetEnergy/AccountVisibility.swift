@@ -16,6 +16,7 @@ enum AccountVisibility {
     static let clientBundleIdentifiers: [String: String] = [
         "doubao": "com.work.pc.doubao",
         "workbuddy": "com.tencent.workbuddy.mac",
+        "workbuddyintl": "com.workbuddy.workbuddy-ai",
         "qwenwork": "cn.qwenwork.desktop.mac",
     ]
 

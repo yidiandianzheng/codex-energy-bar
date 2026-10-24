@@ -92,7 +92,7 @@ struct AccountOverviewPanel: View {
         if case .stale = reading.state { return "上次数据" }
         if reading.id == "doubao" { return "本窗口" }
         if reading.hasReading && todayUsage.valueText(for: reading.id) == nil {
-            return (reading.id == "workbuddy" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
+            return (reading.id == "workbuddy" || reading.id == "workbuddyintl" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
         }
         return "今日·本机"
     }
@@ -104,7 +104,7 @@ struct AccountOverviewPanel: View {
         guard let value = todayUsage.valueText(for: reading.id) else { return "—" }
         switch reading.id {
         case BalanceReading.codexID: return value + " Token"
-        case "workbuddy": return value + " 积分"
+        case "workbuddy", "workbuddyintl": return value + " 积分"
         case "qwenwork": return value + " Credits"
         case "deepseek":
             let prefix = todayUsage.currencyPrefixes[reading.id] ?? reading.unitPrefix ?? ""
