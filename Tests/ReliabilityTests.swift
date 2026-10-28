@@ -151,13 +151,16 @@ pump(0.05)
 expect(received.filter { $0.id == "deepseek" }.count == publishedBeforeStaleCallback,
        "duplicate old callback cannot overwrite a new attempt")
 synthetic.callback(.deepseek, 1)?(deepseek("2"))
-expect(waitUntil { received.count == 5 }, "stuck providers timeout independently")
-expect(received.count == 5 && received.filter { $0.id != "deepseek" }.allSatisfy { if case .failed = $0.state { return true }; return false }, "stuck providers timeout independently")
+// deepseek is refreshed once more on its own, so it publishes twice; every
+// other provider times out once. Keep the total tied to the provider set.
+let expectedReadings = BalanceProvider.allCases.count + 1
+expect(waitUntil { received.count == expectedReadings }, "stuck providers timeout independently")
+expect(received.count == expectedReadings && received.filter { $0.id != "deepseek" }.allSatisfy { if case .failed = $0.state { return true }; return false }, "stuck providers timeout independently")
 expect(waitUntil { refreshing.last == [] && finished == 1 }, "all callback state reaches the main queue and final refreshing state clears")
 expect(refreshing.last == [] && finished == 1 && callbacksOnMain, "all callback state reaches the main queue and final refreshing state clears")
 synthetic.callback(.doubao, 0)?(BalanceProvider.doubao.placeholder())
 pump(0.05)
-expect(received.count == 5, "late result after timeout is ignored")
+expect(received.count == expectedReadings, "late result after timeout is ignored")
 monitor.stop()
 pump(0.01)
 ResetRadarSelfTest.check(into: &failures)

@@ -5,18 +5,22 @@ enum EnergyPanelLayout {
     /// visible viewport rather than a content height: 540 pt keeps the account
     /// summary plus two or three project rows above the fold on the usage tab.
     static let expandedSize = CGSize(width: 420, height: 540)
-    /// Account cells sit in a three-column grid so seven accounts (Codex plus
-    /// six sources) never squeeze their titles. Width stays 320: three columns
+    /// Account cells sit in a three-column grid so nine accounts (Codex plus
+    /// eight sources) never squeeze their titles. Width stays 320: three columns
     /// of ~100 pt hold "186.8" and "¥35.9" at the 20 pt headline without
     /// shrinking.
-    static let compactBaseSize = CGSize(width: 320, height: 160)
+    static let compactWidth: CGFloat = 320
     static let countdownRowHeight: CGFloat = 22
     static let pricingRowHeight: CGFloat = 22
+    static let nightWatchRowHeight: CGFloat = 22
     /// One account row: title + headline + quota-window line.
     static let compactAccountRowHeight: CGFloat = 58
     static let compactAccountColumns = 3
-    /// Recommendation row (22) plus radar row (22).
-    static let compactFooterHeight: CGFloat = 44
+    /// Recommendation row (22), radar row (22) and night-watch row (22).
+    static let compactFooterHeight: CGFloat = 66
+    /// The account grid wraps its rows in 3pt vertical padding top and bottom;
+    /// the window must reserve those 6pt or the footer overflows the frame.
+    static let compactGridVerticalPadding: CGFloat = 6
 
     static func accountRows(for accounts: Int) -> Int {
         let count = max(accounts, 1)
@@ -26,7 +30,7 @@ enum EnergyPanelLayout {
     static func compactBaseSize(accounts: Int = 6, showsCountdown: Bool, showsPricing: Bool = false) -> CGSize {
         let accountHeight = compactAccountRowHeight * CGFloat(accountRows(for: accounts))
         let extra = (showsPricing ? pricingRowHeight : 0) + (showsCountdown ? countdownRowHeight : 0)
-        return CGSize(width: compactBaseSize.width, height: accountHeight + compactFooterHeight + extra)
+        return CGSize(width: compactWidth, height: accountHeight + compactGridVerticalPadding + compactFooterHeight + extra)
     }
 
     static func size(

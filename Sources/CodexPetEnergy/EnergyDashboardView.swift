@@ -63,6 +63,14 @@ struct EnergyDashboardView: View {
                 } else if store.mode == .radar {
                     ResetRadarDetailView(snapshot: store.radarSnapshot, loading: store.isRefreshingRadar)
                         .transition(pageTransition)
+                } else if store.mode == .leaderboard {
+                    ModelLeaderboardDetailView(
+                        snapshot: store.leaderboardSnapshot,
+                        loading: store.isRefreshingLeaderboard,
+                        error: store.leaderboardError,
+                        refresh: refresh
+                    )
+                    .transition(pageTransition)
                 } else if store.mode == .pricing {
                     PricingDetailPanel(
                         snapshot: store.pricingSnapshot,
@@ -93,6 +101,7 @@ struct EnergyDashboardView: View {
     private var sourceTitle: String {
         switch store.mode {
         case .radar: "公开重置信号"
+        case .leaderboard: "OpenRouter"
         case .projects: "本地日志"
         case .balance: "本机账户"
         case .pricing: "模型价格"

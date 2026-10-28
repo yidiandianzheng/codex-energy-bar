@@ -18,6 +18,7 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
     private var modeObserver: AnyCancellable?
     private var countdownObserver: AnyCancellable?
     private var pricingRowObserver: AnyCancellable?
+    private var compactAccountsObserver: AnyCancellable?
     private var displayedMode: EnergyPanelMode = .compact
     private var suppressAnimations = false
     private var snapshotPath: String?
@@ -90,6 +91,20 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
                     self.compactOrigin = CGPoint(x: origin.x, y: origin.y + oldHeight - newHeight)
                 }
                 self.resize(for: self.store.mode, showsPricing: visible)
+            }
+        // Accounts appear/disappear from the compact bar when clients start or
+        // quit (or auto-hide is toggled): the window must follow the visible
+        // row count, otherwise it keeps a stale height and clips or pads.
+        compactAccountsObserver = Publishers.CombineLatest(store.$hiddenBalanceIDs, store.$balances)
+            .dropFirst()
+            .sink { [weak self] _, _ in
+                guard let self else { return }
+                if self.store.mode != .compact, let origin = self.compactOrigin {
+                    let oldHeight = self.panelSize(for: .compact).height
+                    let newHeight = self.panelSize(for: .compact).height
+                    self.compactOrigin = CGPoint(x: origin.x, y: origin.y + oldHeight - newHeight)
+                }
+                self.resize(for: self.store.mode)
             }
         panel.collapse = { [weak store] in store?.setCompactMode() }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -310,6 +325,13 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
             "mode": store.mode.rawValue, "selectedAccount": store.selectedAccountID, "visible": panel.isVisible,
             "sizeLevel": CompactPanelSize.load().rawValue,
             "autoHideInactiveAccounts": store.autoHideInactiveAccounts,
+            "nightWatch": [
+                "active": store.isNightWatchActive,
+                "startedAt": store.nightWatchStartedAt.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
+                "autoStoppedAt": store.nightWatchAutoStoppedAt.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
+                "autoStopPercent": store.nightWatchAutoStopPercent.map { $0 as Any } ?? NSNull(),
+                "notice": store.nightWatchNoticeText.map { $0 as Any } ?? NSNull(),
+            ],
             "frame": ["x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height],
             "coordinateSystem": "macOS screen points, primary screen bottom-left origin",
             "countdownRowVisible": store.showsResetCountdown,
@@ -370,6 +392,14 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         menu.addItem(refreshItem)
 
         menu.addItem(.separator())
+        let nightWatchItem = item(
+            store.isNightWatchActive ? "关闭 AI 通宵（恢复系统休眠）" : "开启 AI 通宵（关屏后继续运行）",
+            action: #selector(toggleNightWatch))
+        nightWatchItem.state = store.isNightWatchActive ? .on : .off
+        nightWatchItem.toolTip = "夜间 AI 通宵模式：系统保持唤醒并立即关闭显示器；使用电池且电量不高于 15% 时自动关闭；合上 MacBook 上盖仍会休眠，建议连接电源。"
+        menu.addItem(nightWatchItem)
+
+        menu.addItem(.separator())
         for size in CompactPanelSize.allCases {
             let sizeItem = item("大小：\(size.title)", action: #selector(changeSize(_:)))
             sizeItem.representedObject = size.rawValue
@@ -379,11 +409,11 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
         menu.addItem(.separator())
         let autoHideItem = item("自动隐藏未打开应用的账户", action: #selector(toggleAutoHide))
         autoHideItem.state = store.autoHideInactiveAccounts ? .on : .off
-        autoHideItem.toolTip = "豆包、WorkBuddy、千问办公客户端未运行时，Mini 条不再为它们占位；总览页仍显示全部账户。"
+        autoHideItem.toolTip = "豆包、WorkBuddy、千问办公、Qoder CN、Trae CN 等客户端未运行时，Mini 条不再为它们占位；总览页仍显示全部账户。"
         menu.addItem(autoHideItem)
         let pricingRowItem = item("在 Mini 条显示省钱灯", action: #selector(togglePricingRow))
         pricingRowItem.state = store.showsPricingRow ? .on : .off
-        pricingRowItem.toolTip = "显示当前最省的模型、DeepSeek 谷时/峰时状态；点这一行查看完整折扣与下次变价。"
+        pricingRowItem.toolTip = "显示当前能力达标模型里性价比最高的选择、DeepSeek 谷时/峰时状态；点这一行查看完整折扣与下次变价。"
         menu.addItem(pricingRowItem)
         menu.addItem(item("打开余额配置文件", action: #selector(openBalanceConfig)))
         menu.addItem(item("隐藏浮窗（点击菜单栏图标找回）", action: #selector(hidePanel)))
@@ -451,6 +481,11 @@ final class EnergyPanelController: NSObject, NSWindowDelegate {
 
     @objc private func togglePricingRow() {
         store.setShowsPricingRow(!store.showsPricingRow)
+        refreshHostedContent?()
+    }
+
+    @objc private func toggleNightWatch() {
+        store.toggleNightWatch()
         refreshHostedContent?()
     }
 

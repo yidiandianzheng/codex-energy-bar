@@ -28,7 +28,8 @@ struct DailyUsageLedger: Codable, Equatable {
     mutating func record(_ reading: BalanceReading, now: Date) {
         roll(to: now)
         let id = reading.id
-        guard id == "deepseek" || id == "workbuddy" || id == "dumate" || id == "qwenwork" else { return }
+        guard id == "deepseek" || id == "workbuddy" || id == "dumate" || id == "qwenwork"
+                || id == "qoder" || id == "trae" else { return }
         if let identity = reading.sourceIdentity, let previous = identities[id], identity != previous {
             moneySpent[id] = nil; pointsSpent[id] = nil; samples[id] = nil; coverageStart[id] = nil
             identities[id] = identity
@@ -36,7 +37,8 @@ struct DailyUsageLedger: Codable, Equatable {
         guard reading.isFresh(at: now), let date = reading.updatedAt,
               DailyUsageStore.dayKey(date) == dayKey,
               let identity = reading.sourceIdentity, !identity.isEmpty,
-              let value = (id == "deepseek" || id == "qwenwork") ? reading.numericValue : reading.numericUsedValue,
+              let value = (id == "deepseek" || id == "qwenwork" || id == "qoder" || id == "trae")
+                ? reading.numericValue : reading.numericUsedValue,
               value.isFinite, value >= 0,
               id != "deepseek" || reading.currency != nil else {
             breakContinuity(for: id)
@@ -58,7 +60,8 @@ struct DailyUsageLedger: Codable, Equatable {
               DailyUsageStore.dayKey(previous.sampledAt) == dayKey else { return }
         // Cash balances and Credit balances both fall as they are spent; the
         // WorkBuddy panel reports a rising "used" figure instead.
-        let delta = (id == "deepseek" || id == "qwenwork") ? previous.value - value : value - previous.value
+        let delta = (id == "deepseek" || id == "qwenwork" || id == "qoder" || id == "trae")
+            ? previous.value - value : value - previous.value
         guard delta.isFinite else { return }
         // A recharge or cycle reset cannot reveal usage during that interval.
         guard delta >= 0 else { return }
@@ -111,7 +114,8 @@ struct TodayUsageSnapshot: Equatable {
             guard let spend = moneySpent[id], let prefix = currencyPrefixes[id] else { return nil }
             return prefix + (BalanceFormatting.money(String(spend)) ?? "—")
         case BalanceProvider.workbuddy.id, BalanceProvider.workbuddyintl.id,
-             BalanceProvider.dumate.id, BalanceProvider.qwenwork.id:
+             BalanceProvider.dumate.id, BalanceProvider.qwenwork.id,
+             BalanceProvider.qoder.id, BalanceProvider.trae.id:
             guard let spend = pointsSpent[id] else { return nil }
             return BalanceFormatting.credits(String(spend))
         default: return nil
@@ -124,7 +128,9 @@ struct TodayUsageSnapshot: Equatable {
         case BalanceProvider.workbuddy.id: "积分 · 今日观测"
         case BalanceProvider.workbuddyintl.id: "积分 · 今日观测"
         case BalanceProvider.dumate.id: "积分 · 今日观测"
-        case BalanceProvider.qwenwork.id: "Credits · 今日观测"
+        case BalanceProvider.qwenwork.id: "积分 · 今日观测"
+        case BalanceProvider.qoder.id: "积分 · 今日观测"
+        case BalanceProvider.trae.id: "积分 · 今日观测"
         default: ""
         }
     }

@@ -3,10 +3,11 @@ import Foundation
 @MainActor
 enum SelfTest {
     private static var suites: [String] = []
-    static func makeStore(now: Date = .now) -> EnergyStore {
+    static func makeStore(now: Date = .now, nightWatch: NightWatchController? = nil) -> EnergyStore {
         let name = "compute-ring.selftest." + UUID().uuidString
         suites.append(name)
-        return EnergyStore(defaults: UserDefaults(suiteName: name)!, now: now, startsTimers: false)
+        return EnergyStore(defaults: UserDefaults(suiteName: name)!, now: now, startsTimers: false,
+                           nightWatch: nightWatch ?? NightWatchController())
     }
     static func run() -> Bool {
         defer { for name in suites { UserDefaults.standard.removePersistentDomain(forName: name) }; suites = [] }
@@ -15,6 +16,7 @@ enum SelfTest {
         ControlSelfTest.check(into: &failures)
         UpgradeSelfTest.check(into: &failures)
         PricingSelfTest.check(into: &failures)
+        NightWatchSelfTest.check(into: &failures)
 
         check(EnergyLogic.remainingPercent(fromUsedPercent: 0) == 100, "0% used should leave 100%", into: &failures)
         check(EnergyLogic.remainingPercent(fromUsedPercent: 66) == 34, "66% used should leave 34%", into: &failures)
@@ -95,10 +97,39 @@ enum SelfTest {
         """#
         let qwenWorkReading = QwenWorkUsageParser.reading(from: Data(qwenWorkFixture.utf8))
         check(qwenWorkReading.valueText == "1,989.6" && qwenWorkReading.percent == nil
-              && qwenWorkReading.unitSuffix == " Credits", "qwenwork credits parsing", into: &failures)
+              && qwenWorkReading.unitSuffix == " 积分", "qwenwork credits parsing", into: &failures)
         let qwenWorkProfile = #"{"ok":true,"data":{"tier":"个人免费版","email":"selftest@example.com"}}"#
         check(QwenWorkUsageParser.reading(from: Data(qwenWorkFixture.utf8), profile: Data(qwenWorkProfile.utf8))
               .sourceIdentity?.hasPrefix("qwenwork:") == true, "qwenwork identity parsing", into: &failures)
+        let qoderFixture = #"""
+        {"userId":"selftest-user","isQuotaExceeded":false,"expiresAt":1794076800,
+        "userQuota":{"total":300,"used":2,"remaining":298},"addOnQuota":{"total":100,"used":25,"remaining":75}}
+        """#
+        let qoderPlan = #"{"plan_tier_name":"Pro Trial"}"#
+        let qoderReading = QoderUsageParser.reading(usage: Data(qoderFixture.utf8), plan: Data(qoderPlan.utf8))
+        check(qoderReading.valueText == "373" && qoderReading.percent == 93,
+              "qoder sums plan and add-on credits", into: &failures)
+        check(qoderReading.detail?.contains("Pro Trial") == true
+              && qoderReading.detail?.contains("附加") == true, "qoder detail names the plan and add-on", into: &failures)
+        check(qoderReading.sourceIdentity?.hasPrefix("qoder:") == true, "qoder identity parsing", into: &failures)
+        check(QoderUsageParser.reading(usage: Data(#"{"isQuotaExceeded":true,"userQuota":{"total":300,"used":300,"remaining":0}}"#.utf8))
+              .percent == 0, "qoder exhausted quota should read zero", into: &failures)
+        let traeFixture = #"""
+        {"code":0,"usage_summary":{"total_amount":600,"consumed_amount":23.1},
+        "user_entitlement_pack_list":[
+        {"group_name":"每月登录积分","expire_time":1793376000000,"entitlement_base_info":{"user_id":"selftest-trae","quota":{"credits_limit":500}},"usage":{"credits_amount":20}},
+        {"group_name":"每日签到","expire_time":1793376000000,"entitlement_base_info":{"quota":{"credits_limit":100}},"usage":{"credits_amount":3.1}}]}
+        """#
+        let traeReading = TraeUsageParser.reading(usage: Data(traeFixture.utf8))
+        check(traeReading.valueText == "576.9" && traeReading.percent == 96,
+              "trae summary credits should decide the remaining balance", into: &failures)
+        check(traeReading.detail?.contains("已用 23.1 / 600") == true, "trae detail should show used and total", into: &failures)
+        check(traeReading.sourceIdentity?.hasPrefix("trae:") == true, "trae identity falls back to the pack user id", into: &failures)
+        check(TraeUsageParser.reading(usage: Data(#"{"code":0,"user_entitlement_pack_list":[]}"#.utf8)).state
+              == .unconfigured("Trae CN 当前没有积分权益包；升级或领取奖励后可在客户端刷新读取"),
+              "trae without packs should ask for a refresh instead of inventing a balance", into: &failures)
+        check(TraeUsageParser.reading(usage: Data(#"{"code":0,"user_entitlement_pack_list":[{"entitlement_base_info":{"quota":{"credits_limit":-1}}}]}"#.utf8))
+              .caption == "积分不限", "trae unlimited pack should not have a percentage", into: &failures)
         let codexLimit = QuotaLimitReading(id: "codex-primary", title: "周额度", remainingPercent: 3,
                                           resetsAt: Date().addingTimeInterval(6 * 86400), windowDurationMins: 10_080)
         let codexReading = BalanceReading.codex(limits: [codexLimit])

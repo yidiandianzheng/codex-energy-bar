@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// 账户页：顶部在五个账户之间切换，下方只看选中账户的额度细节。
+/// 账户页：顶部在各账户之间切换，下方只看选中账户的额度细节。
+///
+/// 十个账户用三列网格排列，标题不会被挤成省略号。
 ///
 /// - Codex：复用现有额度卡（周窗口/5 小时窗口 + 重置券）。
+/// - Gemini：当前 5 小时窗口与每周限额两个窗口。
 /// - 豆包：当前时段与近 7 天两个窗口。
 /// - DeepSeek：余额（无额度周期）。
 /// - WorkBuddy：积分（未运行/读取失败时给出恢复提示）。
-/// - 千问办公：Credits 余额；有套餐总额时显示剩余百分比，否则只显示余额。
+/// - 千问办公：积分余额；有套餐总额时显示剩余百分比，否则只显示余额。
+/// - Qoder CN / Trae CN：积分余额与套餐明细，登录态只在本机内存中解密使用。
 struct AccountDetailPanel: View {
     let readings: [BalanceReading]
     let advice: UsageAdvice
@@ -47,7 +51,11 @@ struct AccountDetailPanel: View {
     // MARK: - 账户切换
 
     private var switcher: some View {
-        HStack(spacing: 4) {
+        LazyVGrid(columns: [
+            GridItem(.flexible(), spacing: 4),
+            GridItem(.flexible(), spacing: 4),
+            GridItem(.flexible(), spacing: 4),
+        ], spacing: 4) {
             ForEach(readings) { reading in
                 Button { select(reading.id) } label: {
                     HStack(spacing: 4) {
@@ -167,7 +175,7 @@ struct AccountDetailPanel: View {
                     }
                 }
                 HStack(spacing: 4) {
-                    Text(reading.id == "doubao" ? "本窗口已用" : "今日已用·本机").font(EnergyTypography.Detail.body).foregroundStyle(.secondary)
+                    Text(isWindowUsageAccount(reading) ? "本窗口已用" : "今日已用·本机").font(EnergyTypography.Detail.body).foregroundStyle(.secondary)
                     Spacer(minLength: 4)
                     Text(usageText(reading))
                         .font(EnergyTypography.Detail.label.monospacedDigit())
@@ -192,7 +200,10 @@ struct AccountDetailPanel: View {
 
     @ViewBuilder
     private func headlineValue(_ reading: BalanceReading) -> some View {
-        if let percent = reading.percent {
+        // 积分余额是用户核对的主数字；百分比只作为下方进度条的辅助，
+        // 避免 100% 把实际余额盖掉。
+        let prefersValue = ["qwenwork", "qoder", "trae"].contains(reading.id)
+        if let percent = reading.percent, !prefersValue {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text("\(percent)").font(EnergyTypography.Detail.heroMetric)
                 Text("%").font(EnergyTypography.Detail.unit).foregroundStyle(.secondary)
@@ -288,14 +299,19 @@ struct AccountDetailPanel: View {
             }
     }
 
+    private func isWindowUsageAccount(_ reading: BalanceReading) -> Bool {
+        reading.id == "doubao" || reading.id == "gemini"
+    }
+
     private func usageText(_ reading: BalanceReading) -> String {
-        if reading.id == "doubao", let percent = reading.percent { return "\(100 - percent)%" }
+        if isWindowUsageAccount(reading), let percent = reading.percent { return "\(100 - percent)%" }
         guard let value = todayUsage.valueText(for: reading.id) else {
             return (reading.id == "workbuddy" || reading.id == "workbuddyintl"
-                || reading.id == "dumate" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
+                || reading.id == "dumate" || reading.id == "qwenwork"
+                || reading.id == "qoder" || reading.id == "trae") ? "今日观测未知" : "采样不足"
         }
         if reading.id == "workbuddy" || reading.id == "workbuddyintl" || reading.id == "dumate" { return value + " 积分" }
-        if reading.id == "qwenwork" { return value + " Credits" }
+        if reading.id == "qwenwork" || reading.id == "qoder" || reading.id == "trae" { return value + " 积分" }
         let prefix = todayUsage.currencyPrefixes[reading.id] ?? reading.unitPrefix ?? ""
         return prefix.isEmpty || value.hasPrefix(prefix) ? value : prefix + value
     }
@@ -306,7 +322,10 @@ struct AccountDetailPanel: View {
         case "workbuddyintl": "打开 WorkBuddy AI 客户端后会自动恢复读取。"
         case "dumate": "打开百度搭子客户端并保持登录后重试。"
         case "qwenwork": "打开千问办公客户端并保持登录后重试。"
+        case "qoder": "打开 Qoder CN 客户端并保持登录后重试。"
+        case "trae": "打开 Trae CN 客户端并保持登录后重试。"
         case "doubao": "打开豆包客户端并保持登录后重试。"
+        case "gemini": "打开 Gemini 应用并保持登录后重试；首次读取可能需要在系统弹窗中允许钥匙串访问。"
         case "deepseek": "在 sources.json 配置 API Key 后重试。"
         default: "检查本机客户端状态后重试。"
         }
@@ -319,7 +338,10 @@ struct AccountDetailPanel: View {
         case "workbuddy": "需要 WorkBuddy 客户端保持运行；不读取或保存其 token。"
         case "workbuddyintl": "需要 WorkBuddy AI 客户端保持运行；通过其本机 IPC 只读查询积分，不读取或保存 token。"
         case "dumate": "读取百度搭子客户端本机登录态后查询官方积分接口；Cookie 只在内存中解密使用，不落盘、不外传。"
-        case "qwenwork": "通过千问办公客户端本机 MCP 通道只读 Credits 用量；不读取或保存登录 token。"
+        case "qwenwork": "通过千问办公客户端本机 MCP 通道只读积分用量；不读取或保存登录 token。"
+        case "qoder": "读取 Qoder CN 本机登录态后查询官方积分用量；token 只在内存中解密使用，不落盘、不外传。"
+        case "trae": "读取 Trae CN 本机登录态后查询官方积分用量；token 只在内存中解密使用，不落盘、不外传。"
+        case "gemini": "读取 Gemini 应用本机登录态后查询官方用量窗口；refresh token 只在内存中解密使用，不落盘、不外传。"
         default: reading.id == BalanceReading.codexID
             ? "来自本机 Codex 账户额度，与本地 Token 独立计量。"
             : "只读本机账户数据。"

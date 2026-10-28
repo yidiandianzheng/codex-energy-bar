@@ -86,6 +86,15 @@ enum PricingFormatting {
         return formatter.string(from: date)
     }
 
+    /// Bare "HH:mm" for compact-row hints like "23:00 Hy4 免费↓".
+    static func clockText(_ date: Date, timeZone: TimeZone = shanghai) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
     static func shortDateText(_ date: Date, timeZone: TimeZone = shanghai) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -128,6 +137,16 @@ enum PricingFormatting {
 enum PricingEngine {
     static let flashID = "deepseek-flash"
 
+    /// 评测基线：DeepSeek V4.1 Flash = 90（与 ModelLeaderboardEngine.capability 同源）。
+    /// 低于 88 视为"明显更弱"，不再进入 Mini 推荐；Hy3 按评测数据为 86。
+    static let capabilityBaseline = 90.0
+    static let capabilityFloor = 88.0
+    static let maxRecommendations = 3
+    /// 没有明确结束日期的限免活动（如 Hy3）变化很快：超过 3 天未人工复核，
+    /// 就标「待核对」并退出推荐，避免把已经收费的模型继续当免费推。
+    static let freeOfferVerificationDays = 3
+    static let freeOfferVerificationWindow: TimeInterval = TimeInterval(freeOfferVerificationDays) * 86_400
+
     static func snapshot(at date: Date, catalog: PricingCatalog = .builtIn) -> PricingSnapshot {
         let quotes = catalog.models
             .map { quote(for: $0, at: date, catalog: catalog) }
@@ -141,6 +160,7 @@ enum PricingEngine {
                 return lhs.model.name < rhs.model.name
             }
         let channels = catalog.channels.map { channelQuote(for: $0, at: date, catalog: catalog) }
+        let freeOffers = catalog.freeOffers.map { freeOfferState(for: $0, at: date, catalog: catalog) }
         // The headline "next change" is about model prices; each points/subscription
         // channel carries its own transition in its row.
         let nextTransition = quotes.compactMap(\.nextTransition).min { $0.date < $1.date }
@@ -151,20 +171,129 @@ enum PricingEngine {
             generatedAt: date,
             catalogVersion: catalog.version,
             checkedAt: catalog.checkedAt,
+            freeOffersCheckedAt: catalog.freeOffersCheckedAt,
             timeZone: catalog.timeZone,
             profile: catalog.profile,
             thresholds: catalog.thresholds,
             quotes: quotes,
             channels: channels,
+            freeOffers: freeOffers,
+            recommendations: recommendations(quotes: quotes, freeOffers: freeOffers, at: date, catalog: catalog),
             changes: changes,
             nextTransition: nextTransition,
-            cheapest: quotes.min { $0.mixedPrice < $1.mixedPrice },
+            bestValue: bestValue(in: quotes),
             greenCount: quotes.filter { $0.light == .green }.count,
             yellowCount: quotes.filter { $0.light == .yellow }.count,
             redCount: quotes.filter { $0.light == .red }.count,
             isStale: catalog.isStale(at: date),
             sourceLine: catalog.sourceLine
         )
+    }
+
+    /// Mini 推荐只回答"现在用哪个强模型最划算"：
+    /// 1. 能力达标的免费额度（0 倍率优先于任何折扣）；
+    /// 2. 能力达标的谷时折扣，按性价比（能力分 ÷ 折算单价）排序——
+    ///    不是绝对价格最低，也不是绝对节省最多；便宜但弱的模型（如豆包 Mini）
+    ///    不进入推荐位，贵模型降价的也不会仅因"省得多"插队；
+    /// 3. 不足三条时补上 12 小时内即将开始的免费窗口。
+    /// 能力未标定或低于门槛的模型只留在价格页，不占用推荐位。
+    static func recommendations(
+        quotes: [PricingQuote],
+        freeOffers: [PricingFreeOfferState],
+        at date: Date,
+        catalog: PricingCatalog
+    ) -> [PricingRecommendation] {
+        var freePicks: [PricingRecommendation] = []
+        for state in freeOffers where state.isFreeNow && state.isVerified {
+            guard let score = state.offer.capabilityScore, score >= capabilityFloor else { continue }
+            freePicks.append(PricingRecommendation(
+                id: "free:" + state.id,
+                name: state.offer.shortName,
+                shortText: "免费 \(state.offer.shortName)",
+                detail: "\(state.offer.modelName) \(state.offer.badge)，0 倍率；能力 \(capabilityText(score))。",
+                kind: .free,
+                capabilityScore: score
+            ))
+        }
+        freePicks.sort { lhs, rhs in
+            if lhs.capabilityScore != rhs.capabilityScore { return lhs.capabilityScore > rhs.capabilityScore }
+            return lhs.id < rhs.id
+        }
+
+        var discountPicks: [(rec: PricingRecommendation, value: Double)] = []
+        for quote in quotes where quote.kind == .offPeak {
+            guard let score = quote.model.capabilityScore, score >= capabilityFloor,
+                  case let .peakValley(peak, _, _) = quote.model.tier,
+                  let value = valueScore(of: quote) else { continue }
+            let saving = mixedPrice(peak, profile: catalog.profile) - quote.mixedPrice
+            guard saving > 0.0001 else { continue }
+            let label = quote.discountLabel ?? "折扣"
+            discountPicks.append((PricingRecommendation(
+                id: "discount:" + quote.id,
+                name: quote.model.shortName,
+                shortText: "\(label) \(quote.model.shortName)",
+                detail: "\(quote.model.name) 现在\(quote.tierLabel)，折算 \(PricingFormatting.mixedPriceText(quote.mixedPrice))，每百万 token 比原价省 ¥\(PricingFormatting.money(saving))；能力 \(capabilityText(score))，性价比 \(valueText(value))（能力分 ÷ 元）。",
+                kind: .discount,
+                capabilityScore: score
+            ), value))
+        }
+        discountPicks.sort { lhs, rhs in
+            if abs(lhs.value - rhs.value) > 0.0001 { return lhs.value > rhs.value }
+            if lhs.rec.capabilityScore != rhs.rec.capabilityScore { return lhs.rec.capabilityScore > rhs.rec.capabilityScore }
+            return lhs.rec.id < rhs.rec.id
+        }
+
+        var result = freePicks + discountPicks.map(\.rec)
+        if result.count < maxRecommendations {
+            let upcoming = freeOffers.compactMap { state -> (rec: PricingRecommendation, start: Date)? in
+                guard !state.isFreeNow, state.isVerified,
+                      let score = state.offer.capabilityScore, score >= capabilityFloor,
+                      let transition = state.nextTransition, transition.label == "免费开始" else { return nil }
+                let interval = transition.date.timeIntervalSince(date)
+                guard interval > 0, interval <= 12 * 3600 else { return nil }
+                let clock = PricingFormatting.clockText(transition.date, timeZone: catalog.timeZone)
+                return (PricingRecommendation(
+                    id: "upcoming:" + state.id,
+                    name: state.offer.shortName,
+                    shortText: "\(clock) \(state.offer.shortName)免费",
+                    detail: "\(state.offer.modelName) \(clock) 起免费；能力 \(capabilityText(score))。",
+                    kind: .upcomingFree,
+                    capabilityScore: score
+                ), transition.date)
+            }.sorted { $0.start < $1.start }.map(\.rec)
+            result.append(contentsOf: upcoming)
+        }
+        return Array(result.prefix(maxRecommendations))
+    }
+
+    /// 性价比 = 能力分 ÷ 折算混合单价（分 / 元）。只有能力达标的强模型参与，
+    /// 避免便宜但明显更弱的模型（如能力 78 的豆包 Mini）靠低价霸榜。
+    static func valueScore(of quote: PricingQuote) -> Double? {
+        guard let score = quote.model.capabilityScore, score >= capabilityFloor, quote.mixedPrice > 0 else {
+            return nil
+        }
+        return score / quote.mixedPrice
+    }
+
+    static func valueText(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
+
+    /// 能力达标模型里性价比最高的一条。免费额度由 `recommendations` 另行优先，
+    /// 这里只回答"要花钱时买哪个强模型最划算"。
+    static func bestValue(in quotes: [PricingQuote]) -> PricingQuote? {
+        quotes
+            .filter { valueScore(of: $0) != nil }
+            .max { lhs, rhs in
+                let l = valueScore(of: lhs) ?? 0
+                let r = valueScore(of: rhs) ?? 0
+                if abs(l - r) > 0.0001 { return l < r }
+                return lhs.id > rhs.id
+            }
+    }
+
+    static func capabilityText(_ score: Double) -> String {
+        String(Int(score.rounded()))
     }
 
     static func quote(for model: PricingModel, at date: Date, catalog: PricingCatalog) -> PricingQuote {
@@ -213,6 +342,81 @@ enum PricingEngine {
             rule: rule,
             isActive: isDiscountActive(at: date, rule: rule, catalog: catalog),
             nextTransition: nextChannelTransition(after: date, note: note, rule: rule, catalog: catalog)
+        )
+    }
+
+    /// Free-window evaluation: the activity day range gates everything, then a
+    /// nil rule means "around the clock" and otherwise the daily discount
+    /// window decides (start > end is supported, e.g. 23:00–08:00).
+    static func freeOfferState(for offer: PricingFreeOffer, at date: Date, catalog: PricingCatalog) -> PricingFreeOfferState {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = catalog.timeZone
+        // 有官方结束日期的活动按日期判断；没有结束日期的活动只在最近 3 天
+        // 核实过时才敢标免费，过期后显示「待核对」。
+        let verifiedAt = offer.verifiedAt ?? catalog.checkedAt
+        let isVerified = offer.validUntil != nil
+            || date.timeIntervalSince(verifiedAt) <= freeOfferVerificationWindow
+        guard isVerified else {
+            return PricingFreeOfferState(offer: offer, isFreeNow: false, isVerified: false, nextTransition: nil)
+        }
+        var isFree = true
+        if let from = offer.validFrom {
+            isFree = isFree && date >= calendar.startOfDay(for: from)
+        }
+        if let until = offer.validUntil,
+           let dayAfter = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: until)) {
+            isFree = isFree && date < dayAfter
+        }
+        if isFree, let ruleID = offer.ruleID, let rule = catalog.rule(ruleID) {
+            isFree = isDiscountActive(at: date, rule: rule, catalog: catalog)
+        }
+        let transition = isFree || activityCovers(date, offer: offer, calendar: calendar)
+            ? nextFreeTransition(after: date, offer: offer, catalog: catalog, isFreeNow: isFree)
+            : nil
+        return PricingFreeOfferState(offer: offer, isFreeNow: isFree, isVerified: true, nextTransition: transition)
+    }
+
+    /// True while `date` is inside (or before the start of) the activity range;
+    /// once the activity is over there is nothing left to count down to.
+    private static func activityCovers(_ date: Date, offer: PricingFreeOffer, calendar: Calendar) -> Bool {
+        if let until = offer.validUntil,
+           let dayAfter = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: until)),
+           date >= dayAfter {
+            return false
+        }
+        return true
+    }
+
+    static func nextFreeTransition(
+        after date: Date,
+        offer: PricingFreeOffer,
+        catalog: PricingCatalog,
+        isFreeNow: Bool
+    ) -> PricingTransition? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = catalog.timeZone
+        var candidates: [(date: Date, label: String)] = []
+        if let ruleID = offer.ruleID, let rule = catalog.rule(ruleID),
+           let candidate = firstChangeDate(after: date, rule: rule, catalog: catalog, currentState: isFreeNow) {
+            let targetFree = isDiscountActive(at: candidate, rule: rule, catalog: catalog)
+            candidates.append((candidate, targetFree ? "免费开始" : "免费结束"))
+        }
+        if let until = offer.validUntil,
+           let dayAfter = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: until)),
+           dayAfter > date {
+            candidates.append((dayAfter, "限免结束"))
+        }
+        if let from = offer.validFrom {
+            let startDay = calendar.startOfDay(for: from)
+            if startDay > date { candidates.append((startDay, "免费开始")) }
+        }
+        guard let first = candidates.min(by: { $0.date < $1.date }) else { return nil }
+        return PricingTransition(
+            date: first.date,
+            becomesDiscounted: first.label == "免费开始",
+            targetKind: nil,
+            context: "\(offer.modelName) \(first.label)",
+            label: first.label
         )
     }
 

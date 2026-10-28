@@ -87,44 +87,56 @@ struct BalanceWindowReading: Identifiable, Equatable {
 
 enum BalanceProvider: String, CaseIterable, Identifiable {
     case deepseek
+    case gemini
     case doubao
     case workbuddy
     case workbuddyintl
     case dumate
     case qwenwork
+    case qoder
+    case trae
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .deepseek: "DeepSeek"
+        case .gemini: "Gemini"
         case .doubao: "豆包"
         case .workbuddy: "WorkBuddy"
         case .workbuddyintl: "WorkBuddy AI"
         case .dumate: "百度搭子"
         case .qwenwork: "千问办公"
+        case .qoder: "Qoder CN"
+        case .trae: "Trae CN"
         }
     }
 
     var systemImage: String {
         switch self {
         case .deepseek: "sparkles"
+        case .gemini: "sparkle"
         case .doubao: "bubble.left.and.bubble.right"
         case .workbuddy: "briefcase"
         case .workbuddyintl: "globe"
         case .dumate: "person.2.badge.gearshape"
         case .qwenwork: "wand.and.stars"
+        case .qoder: "curlybraces"
+        case .trae: "chevron.left.forwardslash.chevron.right"
         }
     }
 
     var sourceURL: URL? {
         switch self {
         case .deepseek: URL(string: "https://platform.deepseek.com/usage")
+        case .gemini: URL(string: "https://gemini.google.com/usage")
         case .doubao: URL(string: "https://www.doubao.com/chat/")
         case .workbuddy: URL(string: "https://www.workbuddy.cn/profile/plan")
         case .workbuddyintl: nil
         case .dumate: URL(string: "https://console.bce.baidu.com/dumate")
         case .qwenwork: URL(string: "https://qwenwork.cn")
+        case .qoder: URL(string: "https://qoder.com.cn/account/usage")
+        case .trae: URL(string: "https://www.trae.cn/")
         }
     }
 

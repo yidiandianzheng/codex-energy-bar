@@ -18,6 +18,11 @@ struct CompactEnergyBar: View {
     var showsPricing = false
     var showPricing: () -> Void = {}
 
+    var nightWatchActive = false
+    var nightWatchElapsed: String? = nil
+    var nightWatchNotice: String? = nil
+    var toggleNightWatch: () -> Void = {}
+
     var body: some View {
         let columns = EnergyPanelLayout.compactAccountColumns
         let rows = stride(from: 0, to: readings.count, by: columns).map {
@@ -85,6 +90,13 @@ struct CompactEnergyBar: View {
                     .frame(height: EnergyPanelLayout.countdownRowHeight)
                     .overlay(alignment: .top) { Rectangle().fill(EnergyVisualStyle.hairline).frame(height: 0.5).padding(.horizontal, 8) }
             }
+
+            CompactNightWatchButton(isActive: nightWatchActive, elapsedText: nightWatchElapsed,
+                notice: nightWatchNotice, action: toggleNightWatch)
+                .frame(height: EnergyPanelLayout.nightWatchRowHeight)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(EnergyVisualStyle.hairline).frame(height: 0.5).padding(.horizontal, 8)
+                }
         }
     }
 }

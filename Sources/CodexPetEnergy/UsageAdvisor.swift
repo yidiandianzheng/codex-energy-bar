@@ -43,10 +43,15 @@ enum AIUsageAdvisor {
             levels[reading.id] = candidate?.level ?? .unavailable
             if let candidate { candidates.append(candidate) }
         }
-        let healthy = candidates.filter { $0.level != .critical }
-        let pool = healthy.isEmpty ? candidates : healthy
+        // 积分账户没有可跨账户比较的配额分母，只作为余额展示；它们不进入推荐池。
+        let ranked = candidates.filter { $0.level != .critical && $0.level != .unknown }
+        let critical = candidates.filter { $0.level == .critical }
+        let pool = ranked.isEmpty ? critical : ranked
         guard let best = pool.max(by: { $0.score < $1.score }) else {
-            return UsageAdvice(recommendedID: nil, headline: "暂无可用建议", detail: "账户额度耗尽、读取失败或数据已过期，请查看账户状态。", compactText: "暂无可用建议", levels: levels)
+            let detail = candidates.contains { $0.level == .unknown }
+                ? "只有积分余额可读；积分账户不参与跨账户推荐，请查看账户状态。"
+                : "账户额度耗尽、读取失败或数据已过期，请查看账户状态。"
+            return UsageAdvice(recommendedID: nil, headline: "暂无可用建议", detail: detail, compactText: "暂无可用建议", levels: levels)
         }
         let headline = best.level == .critical ? "可用额度偏低" : "推荐\(best.title)"
         return UsageAdvice(recommendedID: best.id, headline: headline,
@@ -67,13 +72,12 @@ enum AIUsageAdvisor {
                 score: isCNY ? min(20, money) : 10,
                 reason: balance, compactReason: balance)
         }
-        // 千问办公 reports a remaining Credit balance; its plan denominator can be
-        // absent (free/trial accounts), so a percentage only exists sometimes.
-        // Without one it is still usable, just not rateable — keep it out of the
-        // percentage ranking instead of inventing a quota denominator.
-        if reading.id == "qwenwork", reading.percent == nil {
-            guard let credits = reading.numericValue, credits.isFinite, credits > 0 else { return nil }
-            let balance = "Credits 剩 \(reading.valueText ?? "—")"
+        // 千问办公、Qoder CN 与 Trae CN 是积分余额：套餐百分比只说明"这一池用了多少"，
+        // 不能当作可用余量横向比较（498/498 = 100% 并不代表额度充裕）。统一标为
+        // 未定额，只展示余额；推荐池会跳过它们。
+        if ["qwenwork", "qoder", "trae"].contains(reading.id) {
+            guard let value = reading.valueText else { return nil }
+            let balance = "积分 \(value)"
             return Candidate(id: reading.id, title: reading.title, level: .unknown, score: 0,
                              reason: balance, compactReason: balance)
         }
@@ -87,7 +91,7 @@ enum AIUsageAdvisor {
         let preference: Double = reading.id == "doubao" ? 12 : reading.id == "codex" ? 8 : 4
         let label = limiting.map(compactWindowLabel)
             ?? (reading.id == "workbuddy" || reading.id == "workbuddyintl" || reading.id == "dumate"
-                ? "积分" : reading.id == "qwenwork" ? "Credits" : "额度")
+                ? "积分" : "额度")
         let compactReason = "\(label)剩 \(percent)%"
         let reason = compactReason + resetText(limiting?.resetAt, now: now)
         return Candidate(id: reading.id, title: reading.title, level: level,

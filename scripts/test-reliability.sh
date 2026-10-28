@@ -13,9 +13,13 @@ swiftc "${SWIFT_ARGS[@]}" -module-cache-path "$TEST_DIR/clang" \
   "$ROOT_DIR/Sources/CodexPetEnergy/BalanceConfig.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/BalanceMonitor.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/DeepSeekBalanceClient.swift" \
+  "$ROOT_DIR/Sources/CodexPetEnergy/GeminiBalanceClient.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/DoubaoBalanceClient.swift" \
+  "$ROOT_DIR/Sources/CodexPetEnergy/DuMateBalanceClient.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/WorkBuddyBalanceClient.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/QwenWorkBalanceClient.swift" \
+  "$ROOT_DIR/Sources/CodexPetEnergy/QoderBalanceClient.swift" \
+  "$ROOT_DIR/Sources/CodexPetEnergy/TraeBalanceClient.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/ResetRadarSources.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/ResetReferenceForecast.swift" \
   "$ROOT_DIR/Sources/CodexPetEnergy/ResetRadarSnapshot.swift" \

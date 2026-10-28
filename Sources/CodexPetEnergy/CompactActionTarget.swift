@@ -4,6 +4,7 @@ import Foundation
 enum CompactActionTarget: Hashable {
     case account(String)
     case page(EnergyPanelMode)
+    case nightWatch
     static let quota = Self.account(BalanceReading.codexID)
     static let balance = Self.page(.balance)
     static let projects = Self.page(.projects)

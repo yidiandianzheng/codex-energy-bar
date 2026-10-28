@@ -4,6 +4,7 @@ struct EnergyRefreshRequest: Equatable {
     var codex = false
     var projects = false
     var radar = false
+    var leaderboard = false
     var balances: Set<BalanceProvider> = []
 
     static func forPage(_ mode: EnergyPanelMode, accountID: String) -> Self {
@@ -15,6 +16,7 @@ struct EnergyRefreshRequest: Equatable {
         case .projects: return Self(projects: true, balances: Set(BalanceProvider.allCases))
         case .radar: return Self(radar: true)
         case .pricing: return Self()
+        case .leaderboard: return Self(leaderboard: true)
         }
     }
 }

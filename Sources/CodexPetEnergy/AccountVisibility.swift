@@ -6,10 +6,11 @@ import Foundation
 /// desktop client is not open only adds a "—" placeholder there. The balance
 /// page keeps the full list, so a hidden account never becomes unreachable.
 ///
-/// Codex is the app's primary account and DeepSeek is a server-side balance, so
-/// neither depends on another app being open. 豆包、WorkBuddy、百度搭子 和千问办公
-/// can only be read while their own client is running, which is exactly the
-/// state this policy follows.
+/// Codex is the app's primary account, while DeepSeek and Gemini are read from
+/// local credentials/API keys and keep working whether or not another app is
+/// open. 豆包、WorkBuddy、百度搭子、千问办公、Qoder CN 和 Trae CN can only be read
+/// while their own client is running, which is exactly the state this policy
+/// follows.
 enum AccountVisibility {
     /// Account id → bundle identifier of the client app whose local state is
     /// read. Kept pure here (no AppKit) so the policy is unit-testable.
@@ -19,6 +20,8 @@ enum AccountVisibility {
         "workbuddyintl": "com.workbuddy.workbuddy-ai",
         "dumate": "com.baidu.qianfan.desktop",
         "qwenwork": "cn.qwenwork.desktop.mac",
+        "qoder": "com.qodercn.app",
+        "trae": "cn.trae.app",
     ]
 
     static let autoHideDefaultsKey = "energy-auto-hide-inactive-accounts"

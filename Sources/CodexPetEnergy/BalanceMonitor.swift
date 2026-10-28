@@ -11,11 +11,14 @@ final class BalanceMonitor {
     private let queue = DispatchQueue(label: "codex.pet.energy.balance")
     private let workers = DispatchQueue(label: "codex.pet.energy.balance.fetch", attributes: .concurrent)
     private let deepSeek = DeepSeekBalanceClient()
+    private let gemini = GeminiBalanceClient()
     private let workBuddy = WorkBuddyBalanceClient(provider: .workbuddy, configDirectoryName: ".workbuddy")
     private let workBuddyIntl = WorkBuddyBalanceClient(provider: .workbuddyintl, configDirectoryName: ".workbuddy-ai")
     private let doubao = DoubaoBalanceClient()
     private let duMate = DuMateBalanceClient()
     private let qwenWork = QwenWorkBalanceClient()
+    private let qoder = QoderBalanceClient()
+    private let trae = TraeBalanceClient()
     private var timer: DispatchSourceTimer?
     private var inFlight: [BalanceProvider: UUID] = [:]
     private let refreshInterval: TimeInterval
@@ -79,6 +82,9 @@ final class BalanceMonitor {
             else { completion(provider.unconfigured("未找到 DeepSeek API Key：可写入 ~/.config/codex-energy-bar/sources.json 的 deepseek.apiKey")) }
         case .doubao:
             doubao.fetch(productLine: config.doubaoProductLine, fallbackCookie: config.doubaoCookie, completion: completion)
+        case .gemini:
+            if config.geminiEnabled { gemini.fetch(completion: completion) }
+            else { completion(provider.unconfigured("已在配置中关闭 Gemini 读取")) }
         case .workbuddy:
             if config.workBuddyEnabled { workBuddy.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭 WorkBuddy 读取")) }
@@ -91,6 +97,12 @@ final class BalanceMonitor {
         case .qwenwork:
             if config.qwenWorkEnabled { qwenWork.fetch(completion: completion) }
             else { completion(provider.unconfigured("已在配置中关闭千问办公读取")) }
+        case .qoder:
+            if config.qoderEnabled { qoder.fetch(completion: completion) }
+            else { completion(provider.unconfigured("已在配置中关闭 Qoder CN 读取")) }
+        case .trae:
+            if config.traeEnabled { trae.fetch(completion: completion) }
+            else { completion(provider.unconfigured("已在配置中关闭 Trae CN 读取")) }
         }
     }
 

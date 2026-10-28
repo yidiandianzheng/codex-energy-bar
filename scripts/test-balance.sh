@@ -1,7 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-# Regression tests for the extra balance sources (DeepSeek / 豆包 / WorkBuddy / 千问办公).
+# Regression tests for the extra balance sources (DeepSeek / 豆包 / WorkBuddy /
+# 千问办公 / Qoder CN / Trae CN).
 # Parsing only: no network, no keychain and no WorkBuddy IPC is touched.
 
 ROOT_DIR="${0:A:h:h}"
@@ -24,8 +25,11 @@ swiftc "${SWIFT_ARGS[@]}" \
     "$ROOT_DIR/Sources/CodexPetEnergy/AccountVisibility.swift" \
     "$ROOT_DIR/Sources/CodexPetEnergy/UsageAdvisor.swift" \
     "$ROOT_DIR/Sources/CodexPetEnergy/DeepSeekBalanceClient.swift" \
+    "$ROOT_DIR/Sources/CodexPetEnergy/GeminiBalanceClient.swift" \
     "$ROOT_DIR/Sources/CodexPetEnergy/WorkBuddyBalanceClient.swift" \
     "$ROOT_DIR/Sources/CodexPetEnergy/QwenWorkBalanceClient.swift" \
+    "$ROOT_DIR/Sources/CodexPetEnergy/QoderBalanceClient.swift" \
+    "$ROOT_DIR/Sources/CodexPetEnergy/TraeBalanceClient.swift" \
     "$ROOT_DIR/Sources/CodexPetEnergy/DoubaoBalanceClient.swift" \
     "$TEST_DIR/main.swift" \
     -lsqlite3 \

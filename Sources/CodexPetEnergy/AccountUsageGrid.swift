@@ -3,14 +3,14 @@ import SwiftUI
 /// Per-account usage strip on the "今日用量" page.
 ///
 /// It only prints figures each provider actually exposes: Codex has local token
-/// logs, 豆包 publishes the current window's remaining percentage, WorkBuddy,
-/// WorkBuddy AI, 百度搭子 and 千问办公 report spent/remaining credits, and
-/// DeepSeek just has a balance. No token number is invented for the rest — that
-/// is why the caption states the data boundary and why sampling is required
-/// before "today's spend" can be shown.
+/// logs, Gemini and 豆包 publish the current window's remaining percentage,
+/// WorkBuddy, WorkBuddy AI, 百度搭子、千问办公、Qoder CN and Trae CN report
+/// spent/remaining credits, and DeepSeek just has a balance. No token number is
+/// invented for the rest — that is why the caption states the data boundary and
+/// why sampling is required before "today's spend" can be shown.
 ///
-/// Four columns keep the strip to two rows for the seven accounts, so the
-/// project list below it keeps most of the page.
+/// Three columns keep the strip to four balanced rows for the ten accounts, so
+/// the project list below it keeps most of the page.
 struct AccountUsageGrid: View {
     let codexTokens: Int?
     let readings: [BalanceReading]
@@ -23,20 +23,23 @@ struct AccountUsageGrid: View {
                 Spacer()
                 Text("各自口径").font(EnergyTypography.Detail.caption).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4),
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3),
                       alignment: .leading, spacing: 10) {
                 cell(codex)
                 cell(deepseek)
+                cell(gemini)
                 cell(doubao)
                 cell(workbuddy)
                 cell(workbuddyIntl)
                 cell(dumate)
                 cell(qwenwork)
+                cell(qoder)
+                cell(trae)
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 8)
             .energyCardSurface()
-            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与 WorkBuddy AI、百度搭子、千问办公今日观测值（身份或基线未确认时未知）；豆包只提供窗口剩余，显示本时段已用。")
+            Text("今日用量按本机累计：Codex 今日 Token、DeepSeek 今日余额减少、WorkBuddy 与 WorkBuddy AI、百度搭子、千问办公、Qoder CN 与 Trae CN 今日观测值（身份或基线未确认时未知）；Gemini 与豆包只提供窗口百分比，显示本窗口已用。")
                 .font(EnergyTypography.Detail.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -91,6 +94,29 @@ struct AccountUsageGrid: View {
             return Entry(title: "DeepSeek", value: "—", note: "上次余额 " + balance)
         }
         return Entry(title: "DeepSeek", value: spent, note: spent == "—" ? "采样不足" : "今日 · 余额 \(balance)")
+    }
+
+    private var gemini: Entry {
+        guard let reading = readings.first(where: { $0.id == "gemini" }) else {
+            return Entry(title: "Gemini", value: "—", note: "未读取")
+        }
+        if !reading.hasReading {
+            switch reading.state {
+            case .loading: return Entry(title: "Gemini", value: "—", note: "读取中")
+            case .unconfigured: return Entry(title: "Gemini", value: "—", note: "未登录")
+            case .failed(let message):
+                return Entry(title: "Gemini", value: "—",
+                             note: message.contains("未运行") || message.contains("启动") ? "未运行" : "读取失败")
+            default: return Entry(title: "Gemini", value: "—", note: "未读取")
+            }
+        }
+        if case .stale = reading.state {
+            return Entry(title: "Gemini", value: "—", note: "上次剩余 \(reading.percent.map { "\($0)%" } ?? "—")")
+        }
+        let used = reading.percent.map { "\(max(0, 100 - $0))%" } ?? "—"
+        let weekly = reading.windows.first { $0.id == GeminiUsageParser.weeklyID }
+        let note = weekly.map { "本窗口已用 · 周已用 \(max(0, 100 - $0.remainingPercent))%" } ?? "本窗口已用"
+        return Entry(title: "Gemini", value: used, note: note)
     }
 
     private var doubao: Entry {
@@ -158,28 +184,32 @@ struct AccountUsageGrid: View {
         )
     }
 
-    private var qwenwork: Entry {
-        guard let reading = readings.first(where: { $0.id == "qwenwork" }) else {
-            return Entry(title: "千问办公", value: "—", note: "未读取")
+    private var qwenwork: Entry { creditsEntry("qwenwork", title: "千问办公") }
+    private var qoder: Entry { creditsEntry("qoder", title: "Qoder CN") }
+    private var trae: Entry { creditsEntry("trae", title: "Trae CN") }
+
+    private func creditsEntry(_ id: String, title: String) -> Entry {
+        guard let reading = readings.first(where: { $0.id == id }) else {
+            return Entry(title: title, value: "—", note: "未读取")
         }
         if !reading.hasReading {
             switch reading.state {
-            case .loading: return Entry(title: "千问办公", value: "—", note: "读取中")
-            case .unconfigured: return Entry(title: "千问办公", value: "—", note: "未登录")
+            case .loading: return Entry(title: title, value: "—", note: "读取中")
+            case .unconfigured: return Entry(title: title, value: "—", note: "未登录")
             case .failed(let message):
-                return Entry(title: "千问办公", value: "—",
+                return Entry(title: title, value: "—",
                              note: message.contains("未运行") || message.contains("启动") ? "未运行" : "读取失败")
-            default: return Entry(title: "千问办公", value: "—", note: "未读取")
+            default: return Entry(title: title, value: "—", note: "未读取")
             }
         }
         if case .stale = reading.state {
-            return Entry(title: "千问办公", value: "—", note: "上次 Credits " + (reading.valueText ?? "—"))
+            return Entry(title: title, value: "—", note: "上次积分 " + (reading.valueText ?? "—"))
         }
-        let spent = todayUsage.valueText(for: "qwenwork") ?? "—"
+        let spent = todayUsage.valueText(for: id) ?? "—"
         return Entry(
-            title: "千问办公",
+            title: title,
             value: spent,
-            note: spent == "—" ? "今日观测未知" : "今日 Credits"
+            note: spent == "—" ? "今日观测未知" : "今日积分"
         )
     }
 

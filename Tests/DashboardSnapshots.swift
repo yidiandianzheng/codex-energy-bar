@@ -19,15 +19,19 @@ import SwiftUI
                 let quotaResult = RateLimitReadResult(rateLimits: RateLimitSnapshot(limitId: "codex", primary: RateLimitWindow(usedPercent: 32, windowDurationMins: 300, resetsAt: now.addingTimeInterval(7200).timeIntervalSince1970), secondary: RateLimitWindow(usedPercent: 58, windowDurationMins: 10080, resetsAt: now.addingTimeInterval(3 * 86400).timeIntervalSince1970)), rateLimitsByLimitId: nil)
                 store.apply(quotaResult)
                 for provider in BalanceProvider.allCases {
+                    let isCredits = provider == .qwenwork || provider == .qoder || provider == .trae
+                    let isPoints = provider == .workbuddy || provider == .workbuddyintl || provider == .dumate
                     var reading = BalanceReading(id: provider.id, title: provider.title, systemImage: provider.systemImage,
                         valueText: provider == .doubao ? "71"
-                            : provider == .qwenwork ? (scenario == "long-values" ? "123,456,789.1" : "1,989.6")
+                            : isCredits ? (scenario == "long-values" ? "123,456,789.1" : (provider == .qwenwork ? "1,989.6" : provider == .qoder ? "373.0" : "576.9"))
                             : (scenario == "long-values" ? "123,456,789.12" : "43.06"),
                         unitPrefix: provider == .deepseek ? "¥" : nil,
-                        unitSuffix: provider == .doubao ? "%" : (provider == .workbuddy ? " 积分" : (provider == .qwenwork ? " Credits" : nil)),
-                        caption: provider == .deepseek ? "账户余额" : "剩余可用", detail: "演示账户 · 仅供界面检查", percent: provider == .doubao ? 71 : nil,
+                        unitSuffix: provider == .doubao ? "%" : (isPoints || isCredits ? " 积分" : nil),
+                        caption: provider == .deepseek ? "账户余额" : (isCredits ? "套餐积分剩余" : "剩余可用"),
+                        detail: "演示账户 · 仅供界面检查",
+                        percent: provider == .doubao ? 71 : (provider == .qoder ? 93 : (provider == .trae ? 96 : nil)),
                         windows: provider == .doubao ? [BalanceWindowReading(id: "demo-window", title: "当前时段", remainingPercent: 71, resetAt: now.addingTimeInterval(3600), isPrimary: true)] : [],
-                        state: .ok, sourceURL: nil, updatedAt: now.addingTimeInterval(-300), numericValue: scenario == "long-values" ? 123456791.12 : (provider == .deepseek ? 45.06 : provider == .qwenwork ? 1989.59 : 43.06), numericUsedValue: provider == .workbuddy ? 100 : nil, currency: provider == .deepseek ? "CNY" : (provider == .qwenwork ? "credits" : nil), sourceIdentity: "demo-" + provider.id)
+                        state: .ok, sourceURL: nil, updatedAt: now.addingTimeInterval(-300), numericValue: scenario == "long-values" ? 123456791.12 : (provider == .deepseek ? 45.06 : (isCredits ? 1989.59 : 43.06)), numericUsedValue: isPoints ? 100 : (isCredits ? 23.1 : nil), currency: provider == .deepseek ? "CNY" : (isCredits ? "credits" : nil), sourceIdentity: "demo-" + provider.id)
                     if scenario == "errors" {
                         reading = provider.placeholder()
                         reading.state = provider == .deepseek ? .unconfigured("尚未配置演示 API Key") : .failed("演示：客户端未运行，请打开客户端后刷新。其余账户仍可查看。")
@@ -55,7 +59,7 @@ import SwiftUI
                 let primary = try JSONDecoder().decode(ResetRadarSources.Primary.self, from: Data(radarJSON.utf8))
                 store.applyRadar(ResetRadarSnapshot(primary: scenario == "errors" ? nil : primary, checkedAt: now, errors: scenario == "errors" ? ["演示：来源暂不可用"] : []))
                 for mode in CommandLine.arguments.contains("--projects-only") ? [EnergyPanelMode.projects] : [EnergyPanelMode.balance, .quota, .projects, .radar, .pricing] {
-                    for account in mode == .quota ? ["codex", "deepseek", "doubao", "workbuddy", "qwenwork"] : ["codex"] {
+                    for account in mode == .quota ? ["codex", "deepseek", "doubao", "workbuddy", "qwenwork", "qoder", "trae"] : ["codex"] {
                         store.setMode(mode); store.selectAccount(account)
                         let root = VStack(spacing: 0) {
                             Text("演示数据 · 界面检查").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 8)

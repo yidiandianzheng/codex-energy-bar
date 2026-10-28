@@ -66,6 +66,8 @@ struct PricingModel: Identifiable, Equatable {
     /// Caveat such as "≤32K 档" or "1M 上下文 / 支持图像".
     let note: String?
     let capability: String
+    /// 评测能力分（0–100，与模型排行榜同源）；nil = 尚未标定。
+    let capabilityScore: Double?
     let sourceURL: String?
 
     var isFlatPriced: Bool {
@@ -188,12 +190,16 @@ struct PricingChannelNote: Identifiable, Equatable {
 
 struct PricingCatalog: Equatable {
     let version: String
+    /// 价格表最后一次人工核对的时间。
     let checkedAt: Date
+    /// 免费额度最后一次人工复核的时间；nil = 与价格同时核对。
+    let freeOffersCheckedAt: Date?
     let timeZone: TimeZone
     let models: [PricingModel]
     let rules: [String: PricingRule]
     let holidays: PricingHolidayCalendar
     let channels: [PricingChannelNote]
+    let freeOffers: [PricingFreeOffer]
     let changes: [PricingChangeEvent]
     let profile: PricingTaskProfile
     let thresholds: PricingThresholds
@@ -249,18 +255,87 @@ struct PricingChannelQuote: Identifiable, Equatable {
     }
 }
 
+/// A model whose usage costs nothing inside a window or for a limited
+/// activity, e.g. WorkBuddy Hy4 preview 夜间免费 (23:00–08:00 until 10/31).
+/// Free is strictly better than any discount, so it leads the pricing row.
+struct PricingFreeOffer: Identifiable, Equatable {
+    let id: String
+    let modelName: String
+    /// Compact name for the Mini row where space is scarce.
+    let shortName: String
+    /// "夜间免费" / "限时免费" / "独家限免" — copied from the client badge.
+    let badge: String
+    /// nil = free around the clock while the activity runs.
+    let ruleID: String?
+    /// Activity start day (inclusive, Asia/Shanghai).
+    let validFrom: Date?
+    /// Activity last free day (inclusive, Asia/Shanghai).
+    let validUntil: Date?
+    /// 最近一次人工核实「该活动仍免费」的时间；nil = 沿用 catalog.checkedAt。
+    /// 没有明确结束日期的限免活动超过核验窗口就转「待核对」，不再计入推荐。
+    let verifiedAt: Date?
+    let note: String?
+    /// 评测能力分（0–100）；低于推荐门槛的免费模型只在价格页展示。
+    let capabilityScore: Double?
+}
+
+/// One line of the Mini recommendation row: a free window or an active discount
+/// on a model whose evaluated capability clears the floor. Discounts are ranked
+/// by value (capability ÷ blended price), not by absolute price or saving, so
+/// weak cheap models never take a slot.
+struct PricingRecommendation: Identifiable, Equatable {
+    enum Kind: String, Equatable {
+        case free
+        case discount
+        case upcomingFree
+    }
+
+    let id: String
+    /// Compact model name for the Mini row.
+    let name: String
+    /// "免费 Step-5" / "5折 DeepSeek Pro" / "23:00 Hy4免费".
+    let shortText: String
+    /// Full sentence for help text and the pricing page.
+    let detail: String
+    let kind: Kind
+    let capabilityScore: Double
+}
+
+struct PricingFreeOfferState: Identifiable, Equatable {
+    let offer: PricingFreeOffer
+    let isFreeNow: Bool
+    /// 没有明确结束日期的限免活动是否还在核验窗口内；false = 数据可能已过期。
+    let isVerified: Bool
+    let nextTransition: PricingTransition?
+
+    var id: String { offer.id }
+
+    var statusText: String {
+        if !isVerified { return "待核对" }
+        if isFreeNow { return offer.ruleID == nil ? "全天免费" : "免费中" }
+        return "当前未免费"
+    }
+}
+
 struct PricingSnapshot: Equatable {
     let generatedAt: Date
     let catalogVersion: String
     let checkedAt: Date
+    /// 免费额度最后一次人工复核的时间；nil = 与价格同时核对。
+    let freeOffersCheckedAt: Date?
     let timeZone: TimeZone
     let profile: PricingTaskProfile
     let thresholds: PricingThresholds
     let quotes: [PricingQuote]
     let channels: [PricingChannelQuote]
+    let freeOffers: [PricingFreeOfferState]
+    /// Capability-gated free/discount picks for the Mini row, strongest first.
+    let recommendations: [PricingRecommendation]
     let changes: [PricingChangeEvent]
     let nextTransition: PricingTransition?
-    let cheapest: PricingQuote?
+    /// 能力达标模型中性价比最高的一条（能力分 ÷ 折算单价）；免费额度另由
+    /// `recommendations` 优先。弱模型不会因为便宜而出现在这里。
+    let bestValue: PricingQuote?
     let greenCount: Int
     let yellowCount: Int
     let redCount: Int

@@ -75,19 +75,23 @@ enum PricingSelfTest {
         expect(abs(proPeak.mixedPrice - 12.0) < 0.0001 && proPeak.light == .red, "Pro at peak is red")
         let miniQuote = PricingEngine.quote(for: mini, at: now, catalog: catalog)
         expect(miniQuote.kind == .flat && miniQuote.nextTransition == nil, "flat price has no transition")
-        expect(abs(miniQuote.mixedPrice - 0.5) < 0.0001 && miniQuote.light == .green, "Mini is the cheapest green")
+        expect(abs(miniQuote.mixedPrice - 0.5) < 0.0001 && miniQuote.light == .green, "Mini has the lowest raw price (but is below the recommendation floor)")
         expect(PricingFormatting.money(0.5) == "0.5" && PricingFormatting.money(0.04) == "0.04"
                && PricingFormatting.money(10) == "10", "money formatting trims zeros")
 
         // Snapshot order, counts and headline next change.
         let snapshot = PricingEngine.snapshot(at: now, catalog: catalog)
         expect(snapshot.quotes.count == catalog.models.count, "snapshot keeps every model")
-        expect(snapshot.cheapest?.id == mini.id, "cheapest model is Doubao Mini even when deals lead the list")
+        expect(snapshot.bestValue?.id == flash.id, "best value is DeepSeek Flash; cheap-but-weak Mini never wins")
+        expect((snapshot.bestValue?.model.capabilityScore ?? 0) >= PricingEngine.capabilityFloor,
+               "best value always clears the capability floor")
+        expect(PricingEngine.valueScore(of: miniQuote) == nil,
+               "Mini is below the floor and cannot be scored as a recommendation")
         expect(snapshot.quotes.first?.id == flash.id, "off-peak models lead the price list")
         expect(snapshot.quotes.last?.id == "doubao-seed-2.1-pro", "normal expensive model stays last")
         let peakList = PricingEngine.snapshot(at: date(2026, 10, 26, 10, 0), catalog: catalog)
         expect(peakList.quotes.first?.id == mini.id, "with no active deal the list returns to pure price order")
-        expect(peakList.cheapest?.id == mini.id, "cheapest stays absolute at weekday peak")
+        expect(peakList.bestValue?.id == flash.id, "best value stays DeepSeek Flash at weekday peak")
         expect(snapshot.greenCount == 4 && snapshot.yellowCount == 0 && snapshot.redCount == 2,
                "light counts at Friday 20:50 are 4/0/2")
         expect(snapshot.nextTransition?.date == date(2026, 10, 26, 9, 0), "snapshot headline uses the model transition")
@@ -127,6 +131,104 @@ enum PricingSelfTest {
         expect(PricingEngine.snapshot(at: date(2026, 12, 1, 12, 0), catalog: catalog)
             .changes.contains { $0.id == "deepseek-search-fetch" } == false,
                "past price changes disappear")
+
+        // Free-model windows: Hy4 夜间免费 23:00–08:00 until 10/31 is the only
+        // built-in free offer. Step-5 and Hy3 were removed on 2026-10-28 after
+        // both went back to paid. The 3-day verification window is exercised
+        // below with a custom open-ended offer, because no built-in offer is
+        // open-ended anymore.
+        func freeState(_ id: String, at moment: Date) -> PricingFreeOfferState? {
+            PricingEngine.snapshot(at: moment, catalog: catalog).freeOffers.first { $0.id == id }
+        }
+        let evening = date(2026, 10, 23, 20, 50)
+        let hy4Evening = freeState("workbuddy-hy4-night", at: evening)
+        expect(hy4Evening?.isFreeNow == false, "Hy4 is paid before 23:00")
+        expect(hy4Evening?.nextTransition?.date == date(2026, 10, 23, 23, 0),
+               "Hy4 free window starts tonight at 23:00")
+        expect(hy4Evening?.nextTransition?.label == "免费开始", "Hy4 transition label is 免费开始")
+        let hy4Night = freeState("workbuddy-hy4-night", at: date(2026, 10, 23, 23, 30))
+        expect(hy4Night?.isFreeNow == true, "Hy4 is free at 23:30")
+        expect(hy4Night?.nextTransition?.date == date(2026, 10, 24, 8, 0),
+               "Hy4 free window ends next morning at 08:00")
+        expect(hy4Night?.nextTransition?.label == "免费结束", "Hy4 transition label is 免费结束")
+        expect(freeState("workbuddy-hy4-night", at: date(2026, 10, 24, 8, 0))?.isFreeNow == false,
+               "the free window is half-open: 08:00 is paid again")
+        expect(freeState("workbuddy-hy4-night", at: date(2026, 10, 31, 23, 30))?.isFreeNow == true,
+               "10/31 night is still inside the activity")
+        let hy4Expired = freeState("workbuddy-hy4-night", at: date(2026, 11, 2, 12, 0))
+        expect(hy4Expired?.isFreeNow == false && hy4Expired?.nextTransition == nil,
+               "after 10/31 the Hy4 activity is over and has no countdown")
+        expect(freeState("workbuddy-hy3-limited", at: evening) == nil,
+               "Hy3 is no longer a free offer after the 2026-10-28 correction")
+        expect(freeState("workbuddy-step5-limited", at: evening) == nil,
+               "Step-5 is no longer a free offer after the 2026-10-28 correction")
+        let freeSnapshot = PricingEngine.snapshot(at: evening, catalog: catalog)
+        expect(freeSnapshot.freeOffers.count == 1, "only Hy4 remains as a built-in free offer")
+        expect((freeSnapshot.freeOffersCheckedAt ?? .distantPast) > freeSnapshot.checkedAt,
+               "free offers were rechecked after the price table date")
+
+        // 3-day verification window: an open-ended offer is trusted only while
+        // its last manual check is fresh; stale data must never be recommended.
+        let ttlOffer = PricingFreeOffer(
+            id: "test-open-ended",
+            modelName: "Test Open Ended",
+            shortName: "Test",
+            badge: "限时免费",
+            ruleID: nil,
+            validFrom: nil,
+            validUntil: nil,
+            verifiedAt: catalog.checkedAt,
+            note: nil,
+            capabilityScore: 95
+        )
+        let ttlCatalog = PricingCatalog(
+            version: "test",
+            checkedAt: catalog.checkedAt,
+            freeOffersCheckedAt: nil,
+            timeZone: catalog.timeZone,
+            models: catalog.models,
+            rules: catalog.rules,
+            holidays: catalog.holidays,
+            channels: catalog.channels,
+            freeOffers: [ttlOffer],
+            changes: catalog.changes,
+            profile: catalog.profile,
+            thresholds: catalog.thresholds,
+            sourceLine: "test"
+        )
+        let ttlFresh = PricingEngine.snapshot(at: date(2026, 10, 26, 12, 0), catalog: ttlCatalog).freeOffers.first
+        expect(ttlFresh?.isVerified == true && ttlFresh?.isFreeNow == true,
+               "open-ended offer stays free inside the 3-day verification window")
+        let ttlStaleSnapshot = PricingEngine.snapshot(at: date(2026, 10, 28, 12, 0), catalog: ttlCatalog)
+        let ttlStale = ttlStaleSnapshot.freeOffers.first
+        expect(ttlStale?.isVerified == false && ttlStale?.isFreeNow == false,
+               "open-ended offer becomes unverified after 3 days without re-check")
+        expect(ttlStale?.statusText == "待核对", "unverified free offers say 待核对")
+        expect(!ttlStaleSnapshot.recommendations.contains { $0.id == "free:test-open-ended" },
+               "unverified free offers never enter the Mini row")
+        let eveningPicks = freeSnapshot.recommendations
+        expect(eveningPicks.map(\.id) == [
+            "discount:deepseek-flash",
+            "discount:deepseek-v4-pro",
+            "upcoming:workbuddy-hy4-night",
+        ], "evening: no free pick; discounts by value, then the upcoming Hy4 window")
+        expect(!eveningPicks.contains { $0.name == "豆包 Mini" },
+               "the cheap-but-weak Doubao Mini never takes a recommendation slot")
+        expect(eveningPicks.allSatisfy { $0.capabilityScore >= PricingEngine.capabilityFloor },
+               "every recommendation clears the capability floor")
+        expect(eveningPicks.first?.shortText == "5折 DeepSeek Flash", "discount pick text carries the deal")
+        expect(eveningPicks[1].shortText == "5折 DeepSeek Pro", "second pick is the next value discount")
+        let freeNightSnapshot = PricingEngine.snapshot(at: date(2026, 10, 23, 23, 30), catalog: catalog)
+        expect(freeNightSnapshot.recommendations.prefix(2).map(\.id) == [
+            "free:workbuddy-hy4-night",
+            "discount:deepseek-flash",
+        ], "at night the strong Hy4 free window leads, then value discounts")
+        let peakWithUpcoming = PricingEngine.snapshot(at: date(2026, 10, 26, 11, 30), catalog: catalog)
+        expect(peakWithUpcoming.recommendations.map(\.id) == [
+            "upcoming:workbuddy-hy4-night",
+        ], "only the upcoming Hy4 window fills a slot; Step-5 and Hy3 are gone")
+        expect(peakWithUpcoming.recommendations.last?.shortText == "23:00 Hy4免费",
+               "upcoming pick shows the start time")
 
         // Row height: pricing adds exactly one 22 pt row at every scale.
         for size in CompactPanelSize.allCases {

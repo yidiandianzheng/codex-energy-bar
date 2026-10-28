@@ -31,7 +31,7 @@ struct BalanceDetailPanel: View {
                 PanelEmptyState(
                     title: "正在读取账户余额",
                     systemImage: "creditcard",
-                    description: "Codex、DeepSeek、豆包、WorkBuddy、千问办公的剩余额度会分别显示；未配置的账户会给出配置指引。"
+                    description: "Codex、DeepSeek、Gemini、豆包、WorkBuddy、千问办公、Qoder CN、Trae CN 的剩余额度会分别显示；未配置的账户会给出配置指引。"
                 )
             } else {
                 ScrollView {

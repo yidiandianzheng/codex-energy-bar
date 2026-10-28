@@ -28,7 +28,11 @@ struct EnergyPanelView: View {
                     showRadar: { store.setMode(.radar) },
                     pricingSnapshot: store.pricingSnapshot,
                     showsPricing: store.showsPricingRow,
-                    showPricing: { store.setMode(.pricing) })
+                    showPricing: { store.setMode(.pricing) },
+                    nightWatchActive: store.isNightWatchActive,
+                    nightWatchElapsed: store.nightWatchElapsedText,
+                    nightWatchNotice: store.nightWatchNoticeText,
+                    toggleNightWatch: { store.toggleNightWatch() })
                     .frame(width: compactBase.width, height: compactBase.height)
                     .transition(.opacity)
             } else {

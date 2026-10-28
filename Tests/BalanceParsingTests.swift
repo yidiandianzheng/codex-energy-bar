@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 var failures: [String] = []
@@ -80,7 +81,7 @@ let qwenFreeJSON = #"""
 let qwenProfileJSON = #"{"ok":true,"data":{"tier":"个人免费版","email":"demo@example.com"}}"#
 let qwenFree = QwenWorkUsageParser.reading(from: Data(qwenFreeJSON.utf8), profile: Data(qwenProfileJSON.utf8))
 check(qwenFree.state == .ok, "qwenwork fixture should decode as ok")
-check(qwenFree.valueText == "1,989.6" && qwenFree.unitSuffix == " Credits", "qwenwork shows the remaining Credits")
+check(qwenFree.valueText == "1,989.6" && qwenFree.unitSuffix == " 积分", "qwenwork shows the remaining points")
 check(qwenFree.percent == nil, "qwenwork without a plan denominator has no percentage")
 check(qwenFree.detail?.contains("个人免费版") == true, "qwenwork keeps the account tier")
 check(qwenFree.sourceIdentity?.hasPrefix("qwenwork:") == true, "qwenwork derives an identity for today's usage ledger")
@@ -124,13 +125,147 @@ let qwenInvalid = QwenWorkUsageParser.reading(from: Data(#"""
 {"ok":true,"data":{"available":true,"planCredits":{"total":"1e300","used":"nan","remaining":"inf"}}}
 """#.utf8))
 if case .failed = qwenInvalid.state {} else {
-    failures.append("qwenwork must not turn invalid Credits into an exhausted quota")
+    failures.append("qwenwork must not turn invalid points into an exhausted quota")
 }
 
 let qwenTokenMissing = QwenWorkUsageParser.reading(from: Data(#"{"ok":true,"data":{"available":false,"message":"Access token not available"}}"#.utf8))
 if case .unconfigured = qwenTokenMissing.state {} else {
     failures.append("qwenwork signed-out token state must hide like an unconfigured account")
 }
+
+// ── Qoder CN ──────────────────────────────────────────────────────────────
+let qoderJSON = #"""
+{"userId":"qoder-demo","isQuotaExceeded":false,"expiresAt":1794076800,
+"userQuota":{"total":300,"used":2,"remaining":298},"addOnQuota":{"total":100,"used":25,"remaining":75}}
+"""#
+let qoderPlan = #"{"plan_tier_name":"Pro Trial"}"#
+let qoder = QoderUsageParser.reading(usage: Data(qoderJSON.utf8), plan: Data(qoderPlan.utf8))
+check(qoder.state == .ok, "qoder fixture should decode as ok")
+check(qoder.valueText == "373" && qoder.unitSuffix == " 积分", "qoder sums plan and add-on points")
+check(qoder.percent == 93, "qoder derives the remaining percentage from its own capacity")
+check(qoder.detail?.contains("Pro Trial") == true && qoder.detail?.contains("附加") == true,
+      "qoder keeps the plan tier and the add-on portion")
+check(qoder.sourceIdentity?.hasPrefix("qoder:") == true, "qoder derives an identity for today's usage ledger")
+
+let qoderExceeded = QoderUsageParser.reading(usage: Data(#"""
+{"isQuotaExceeded":true,"userQuota":{"total":300,"used":300,"remaining":0}}
+"""#.utf8))
+check(qoderExceeded.percent == 0 && qoderExceeded.caption == "额度已用尽", "qoder marks an exhausted plan")
+
+let qoderMissingQuota = QoderUsageParser.reading(usage: Data(#"{"userId":"qoder-demo"}"#.utf8))
+if case .failed = qoderMissingQuota.state {} else {
+    failures.append("qoder without quota sections must fail instead of inventing a balance")
+}
+
+let qoderBroken = QoderUsageParser.reading(usage: Data("not json".utf8))
+if case .failed = qoderBroken.state {} else { failures.append("qoder malformed payload must fail") }
+
+// ── Trae CN ───────────────────────────────────────────────────────────────
+let traeJSON = #"""
+{"code":0,"usage_summary":{"total_amount":600,"consumed_amount":23.1},
+"user_entitlement_pack_list":[
+{"group_name":"每月登录积分","expire_time":1793376000000,"entitlement_base_info":{"user_id":"trae-demo","quota":{"credits_limit":500}},"usage":{"credits_amount":20}},
+{"group_name":"每日签到","expire_time":1793376000000,"entitlement_base_info":{"quota":{"credits_limit":100}},"usage":{"credits_amount":3.1}}]}
+"""#
+let trae = TraeUsageParser.reading(usage: Data(traeJSON.utf8))
+check(trae.state == .ok, "trae fixture should decode as ok")
+check(trae.valueText == "576.9" && trae.unitSuffix == " 积分", "trae uses the usage summary for the remaining points")
+check(trae.percent == 96, "trae derives the remaining percentage from the summary")
+check(trae.detail?.contains("已用 23.1 / 600") == true, "trae keeps the used and total points")
+check(trae.sourceIdentity?.hasPrefix("trae:") == true, "trae falls back to the pack user id for identity")
+
+let traeNoPacks = TraeUsageParser.reading(usage: Data(#"{"code":0,"user_entitlement_pack_list":[]}"#.utf8))
+if case .unconfigured = traeNoPacks.state {} else {
+    failures.append("trae without entitlement packs should ask for a refresh")
+}
+
+let traeUnlimited = TraeUsageParser.reading(usage: Data(#"""
+{"code":0,"user_entitlement_pack_list":[{"entitlement_base_info":{"quota":{"credits_limit":-1}}}]}
+"""#.utf8))
+check(traeUnlimited.state == .ok && traeUnlimited.percent == nil && traeUnlimited.caption == "积分不限",
+      "trae unlimited packs stay unrated instead of becoming 100%")
+
+let traeError = TraeUsageParser.reading(usage: Data(#"{"code":40001,"message":"token expired"}"#.utf8))
+if case .failed(let message) = traeError.state, message.contains("token expired") {
+} else {
+    failures.append("trae business errors must surface the upstream message")
+}
+
+let traeBroken = TraeUsageParser.reading(usage: Data("not json".utf8))
+if case .failed = traeBroken.state {} else { failures.append("trae malformed payload must fail") }
+
+// ── Gemini ────────────────────────────────────────────────────────────────
+let geminiJSON = #"""
+{"userTier":"TIER1","usage":[
+{"budgetPoolType":"GXU_WEEKLY","gxu":{"windowRefreshesAt":"2026-10-27T14:23:06.029147Z","pctUsed":0.02,"title":"Weekly limit"}},
+{"budgetPoolType":"GXU_FIVE_HOURLY","gxu":{"windowRefreshesAt":"2026-10-26T09:23:06.029036Z","pctUsed":0.4,"title":"Current usage"}}]}
+"""#
+let gemini = GeminiUsageParser.reading(usage: Data(geminiJSON.utf8), gaiaID: "gaia-demo")
+check(gemini.state == .ok, "gemini fixture should decode as ok")
+check(gemini.valueText == "60" && gemini.unitSuffix == "%", "gemini headline is the remaining 5-hour window")
+check(gemini.percent == 60, "gemini converts pctUsed into remaining percentage")
+check(gemini.windows.count == 2 && gemini.windows[0].id == GeminiUsageParser.fiveHourID
+      && gemini.windows[0].isPrimary, "gemini promotes the 5-hour window")
+check(gemini.windows[1].id == GeminiUsageParser.weeklyID && gemini.windows[1].remainingPercent == 98,
+      "gemini keeps the weekly window as a secondary line")
+check(gemini.detail?.contains("Pro") == true && gemini.detail?.contains("本周已用 2%") == true,
+      "gemini keeps the plan tier and weekly usage")
+check(gemini.sourceIdentity?.hasPrefix("gemini:") == true, "gemini derives an identity from the Gaia ID")
+
+let geminiExhausted = GeminiUsageParser.reading(usage: Data(#"""
+{"userTier":"TIER1","usage":[{"budgetPoolType":"GXU_FIVE_HOURLY","gxu":{"pctUsed":1.0}}]}
+"""#.utf8))
+check(geminiExhausted.percent == 0 && geminiExhausted.caption == "当前用量已用尽",
+      "gemini marks an exhausted current window")
+
+let geminiMissing = GeminiUsageParser.reading(usage: Data(#"{"userTier":"TIER1","usage":[]}"#.utf8))
+if case .failed = geminiMissing.state {} else {
+    failures.append("gemini without usage windows must fail instead of inventing a quota")
+}
+
+let geminiBroken = GeminiUsageParser.reading(usage: Data("not json".utf8))
+if case .failed = geminiBroken.state {} else { failures.append("gemini malformed payload must fail") }
+
+func sampleVarint(_ value: UInt64) -> [UInt8] {
+    var remaining = value
+    var bytes: [UInt8] = []
+    repeat {
+        var byte = UInt8(remaining & 0x7f)
+        remaining >>= 7
+        if remaining > 0 { byte |= 0x80 }
+        bytes.append(byte)
+    } while remaining > 0
+    return bytes
+}
+func sampleField(_ field: UInt64, _ payload: [UInt8]) -> [UInt8] {
+    sampleVarint((field << 3) | 2) + sampleVarint(UInt64(payload.count)) + payload
+}
+
+let sampleKey = Data(repeating: 0x5c, count: 32)
+let sampleNonce = Data(repeating: 0x2a, count: 12)
+let samplePlain = Data(sampleField(4, Array("1//sample-refresh-token".utf8)))
+let sealed = try! AES.GCM.seal(samplePlain, using: SymmetricKey(data: sampleKey),
+                               nonce: AES.GCM.Nonce(data: sampleNonce))
+let samplePayload = [UInt8](sealed.ciphertext) + [UInt8](sealed.tag)
+var samplePreamble: [UInt8] = [0x08, 0x01, 0x10, 0x01, 0x18, 0x01]
+samplePreamble += sampleField(4, [UInt8](sampleNonce))
+samplePreamble += sampleVarint((5 << 3) | 0) + sampleVarint(UInt64(samplePayload.count))
+let sampleContainer = Data([0x2e, 0xba, 0xfe, 0xca, 0x2e, 0xba, 0xfe, 0xca])
+    + Data([UInt8(samplePreamble.count & 0xff), UInt8((samplePreamble.count >> 8) & 0xff), 0, 0])
+    + Data(samplePreamble) + Data(samplePayload)
+let decrypted = GeminiCredentialVault.decryptContainer(sampleContainer, key: sampleKey)
+check(decrypted != nil, "gemini container decrypts with the credentials key")
+check(decrypted.flatMap { GeminiCredentialVault.parseStringField(4, in: $0) } == "1//sample-refresh-token",
+      "gemini reads the refresh token from the decrypted container")
+check(GeminiCredentialVault.decryptContainer(sampleContainer, key: Data(repeating: 0, count: 32)) == nil,
+      "gemini container rejects the wrong key")
+
+let sampleKeyData: [UInt8] = sampleVarint((1 << 3) | 0) + sampleVarint(1) + sampleField(4, [UInt8](sampleKey))
+let sampleKeystore = Data(sampleField(2, sampleKeyData))
+check(GeminiCredentialVault.extractCredentialsKey(from: sampleKeystore) == sampleKey,
+      "gemini extracts KEY_ID_CREDENTIALS (id 1) from the keychain protobuf")
+check(GeminiBalanceClient.clientSecret.hasPrefix("GOCSPX-") && GeminiBalanceClient.clientSecret.count == 35,
+      "gemini client secret decodes to a Google desktop credential")
 
 // ── usage advisor ─────────────────────────────────────────────────────────
 func reading(_ id: String, _ title: String, value: String?, prefix: String? = nil, suffix: String? = nil,
@@ -164,7 +299,8 @@ let qwenAdvice = AIUsageAdvisor.advise(readings: [qwenFree, reading("doubao", "�
     windows: [BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 71, resetAt: nil)])], now: Date())
 check(qwenAdvice.recommendedID == "doubao", "percentage-based quota outranks an unrated credit balance")
 let qwenFallback = AIUsageAdvisor.advise(readings: [qwenFree, reading("codex", "Codex", value: "1", suffix: "%", percent: 1)], now: Date())
-check(qwenFallback.recommendedID == "qwenwork", "unrated credits remain a last-resort recommendation")
+check(qwenFallback.recommendedID == "codex" && qwenFallback.levels["qwenwork"] == .unknown,
+      "credit balances never become a fallback recommendation")
 
 let allCritical = AIUsageAdvisor.advise(readings: [
     reading("codex", "Codex", value: "2", suffix: "%", percent: 2),
@@ -209,10 +345,22 @@ check(AccountVisibility.hiddenIDs(
     "signed-out 千问办公 hides even while its client is open")
 check(AccountVisibility.hiddenIDs(readings: [visibilityReadings[0]], runningClients: [], autoHide: true).isEmpty,
       "Codex is never hidden")
+check(AccountVisibility.hiddenIDs(
+    readings: [BalanceProvider.gemini.placeholder()],
+    runningClients: [], autoHide: true).isEmpty,
+    "Gemini stays on the compact bar even when its app is closed")
+check(AccountVisibility.clientBundleIdentifiers["gemini"] == nil,
+      "Gemini has no client-running dependency")
 check(AccountVisibility.clientBundleIdentifiers["doubao"] == "com.work.pc.doubao"
       && AccountVisibility.clientBundleIdentifiers["workbuddy"] == "com.tencent.workbuddy.mac"
-      && AccountVisibility.clientBundleIdentifiers["qwenwork"] == "cn.qwenwork.desktop.mac",
+      && AccountVisibility.clientBundleIdentifiers["qwenwork"] == "cn.qwenwork.desktop.mac"
+      && AccountVisibility.clientBundleIdentifiers["qoder"] == "com.qodercn.app"
+      && AccountVisibility.clientBundleIdentifiers["trae"] == "cn.trae.app",
       "client bundle identifiers stay pinned to their desktop apps")
+check(AccountVisibility.hiddenIDs(
+    readings: [BalanceProvider.qoder.placeholder(), BalanceProvider.trae.placeholder()],
+    runningClients: [], autoHide: true) == ["qoder", "trae"],
+    "closed Qoder CN / Trae CN clients leave the compact bar")
 
 if failures.isEmpty {
     print("Balance parsing tests passed")

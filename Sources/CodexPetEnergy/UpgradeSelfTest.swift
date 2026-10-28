@@ -55,13 +55,22 @@ import Foundation
             windows: [BalanceWindowReading(id: "H5", title: "5 小时", remainingPercent: 80, resetAt: nil), BalanceWindowReading(id: "D7", title: "7 天", remainingPercent: 80, resetAt: nil), BalanceWindowReading(id: "INC-H5", title: "赠送", remainingPercent: 1, resetAt: nil)], state: .ok, sourceURL: nil, updatedAt: now)
         expect(AIUsageAdvisor.level(for: bonus, now: now) == .ample, "independent reward pool does not constrain personal quota")
         let unratedCredits = BalanceReading(id: "qwenwork", title: "千问办公", systemImage: "wand.and.stars",
-            valueText: "1,989.6", unitPrefix: nil, unitSuffix: " Credits", caption: "剩余 Credits", detail: nil,
+            valueText: "1,989.6", unitPrefix: nil, unitSuffix: " 积分", caption: "剩余积分", detail: nil,
             percent: nil, windows: [], state: .ok, sourceURL: nil, updatedAt: now,
             numericValue: 1989.59, currency: "credits", sourceIdentity: "qwenwork:demo")
         expect(AIUsageAdvisor.level(for: unratedCredits, now: now) == .unknown,
                "a credit balance without a denominator is unrated")
         expect(AIUsageAdvisor.advise(readings: [unratedCredits, BalanceReading.codex(limits: [limits[1]], now: now)], now: now).recommendedID == "codex",
                "unrated credits do not outrank a rated quota")
+        // 498/498 = 100% 只说明这一池没动过，不代表额度充裕，不能排到推荐第一。
+        let qoderFull = BalanceReading(id: "qoder", title: "Qoder CN", systemImage: "chevron.left.forwardslash.chevron.right",
+            valueText: "498", unitPrefix: nil, unitSuffix: " 积分", caption: "套餐积分剩余", detail: nil,
+            percent: 100, windows: [], state: .ok, sourceURL: nil, updatedAt: now,
+            numericValue: 498, currency: "credits", sourceIdentity: "qoder:demo")
+        expect(AIUsageAdvisor.level(for: qoderFull, now: now) == .unknown,
+               "a full plan percentage on a small credit balance is still unrated")
+        expect(AIUsageAdvisor.advise(readings: [qoderFull, BalanceReading.codex(limits: [limits[1]], now: now)], now: now).recommendedID == "codex",
+               "credit accounts never outrank a rated quota account")
         let unknown = QuotaLimitReading(id: "codex-primary", title: "5 小时", remainingPercent: nil, resetsAt: nil, windowDurationMins: 300)
         expect(AIUsageAdvisor.advise(readings: [BalanceReading.codex(limits: [unknown, limits[1]], now: now)], now: now).recommendedID == nil, "unknown blocking window prevents recommendation")
         let store = SelfTest.makeStore(now: now)
@@ -103,8 +112,8 @@ import Foundation
 
         func credits(_ amount: Double, at date: Date, identity: String? = "qwen-account") -> BalanceReading {
             BalanceReading(id: "qwenwork", title: "千问办公", systemImage: "wand.and.stars",
-                valueText: BalanceFormatting.credits(String(amount)), unitPrefix: nil, unitSuffix: " Credits",
-                caption: "剩余 Credits", detail: nil, percent: nil, windows: [], state: .ok,
+                valueText: BalanceFormatting.credits(String(amount)), unitPrefix: nil, unitSuffix: " 积分",
+                caption: "剩余积分", detail: nil, percent: nil, windows: [], state: .ok,
                 sourceURL: nil, updatedAt: date, numericValue: amount, currency: "credits",
                 sourceIdentity: identity)
         }

@@ -6,7 +6,7 @@ struct CompactAccountCell: View {
     let reading: BalanceReading
     let isRecommended: Bool
     let target: CompactActionTarget
-    /// Five simultaneously open clients leave about 61 pt per cell. In that
+    /// Nine simultaneously open clients leave about 61 pt per cell. In that
     /// transient case drop the window suffix from the title and shorten large
     /// balances so the cell never truncates its headline number.
     var isDense = false
@@ -88,7 +88,7 @@ struct CompactAccountCell: View {
     private var valueText: String {
         switch reading.state {
         case .ok, .stale:
-            if reading.id == "qwenwork", let number = numericValue {
+            if ["qwenwork", "qoder", "trae"].contains(reading.id), let number = numericValue {
                 // Keep the exact balance (one decimal) instead of "2K"; this is
                 // the number the user checks against 千问办公 itself.
                 return String(format: "%.1f", number)
@@ -129,7 +129,7 @@ struct CompactAccountCell: View {
         switch reading.id {
         case "workbuddy", "workbuddyintl", "dumate": return "积分"
         case "deepseek": return "余额"
-        case "qwenwork": return "Credits"
+        case "qwenwork", "qoder", "trae": return "积分"
         default: return nil
         }
     }

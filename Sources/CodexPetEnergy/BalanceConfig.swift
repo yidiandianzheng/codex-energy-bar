@@ -5,20 +5,24 @@ import Foundation
 /// Secrets live only in `~/.config/codex-energy-bar/sources.json` (0600) and are
 /// never written to the repository or uploaded anywhere. The file is optional:
 /// DeepSeek can be discovered from keys the machine already stores, WorkBuddy
-/// and 千问办公 use their own local channels, and 豆包 reads its own client login
-/// state.
+/// and 千问办公 use their own local channels, and Gemini、豆包、Qoder CN、Trae CN
+/// read their own client login state.
 struct BalanceConfig: Equatable {
     var deepSeekAPIKey: String?
     var doubaoCookie: String?
     var doubaoProductLine: String?
+    var geminiEnabled: Bool
     var workBuddyEnabled: Bool
     var workBuddyIntlEnabled: Bool
     var duMateEnabled: Bool
     var qwenWorkEnabled: Bool
+    var qoderEnabled: Bool
+    var traeEnabled: Bool
 
     static let empty = BalanceConfig(deepSeekAPIKey: nil, doubaoCookie: nil, doubaoProductLine: nil,
-                                     workBuddyEnabled: true, workBuddyIntlEnabled: true,
-                                     duMateEnabled: true, qwenWorkEnabled: true)
+                                     geminiEnabled: true, workBuddyEnabled: true, workBuddyIntlEnabled: true,
+                                     duMateEnabled: true, qwenWorkEnabled: true,
+                                     qoderEnabled: true, traeEnabled: true)
 
     static var directoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -50,6 +54,10 @@ struct BalanceConfig: Equatable {
                let enabled = workbuddy["enabled"] as? Bool {
                 config.workBuddyEnabled = enabled
             }
+            if let gemini = object["gemini"] as? [String: Any],
+               let enabled = gemini["enabled"] as? Bool {
+                config.geminiEnabled = enabled
+            }
             if let intl = object["workbuddyintl"] as? [String: Any],
                let enabled = intl["enabled"] as? Bool {
                 config.workBuddyIntlEnabled = enabled
@@ -61,6 +69,14 @@ struct BalanceConfig: Equatable {
             if let qwenwork = object["qwenwork"] as? [String: Any],
                let enabled = qwenwork["enabled"] as? Bool {
                 config.qwenWorkEnabled = enabled
+            }
+            if let qoder = object["qoder"] as? [String: Any],
+               let enabled = qoder["enabled"] as? Bool {
+                config.qoderEnabled = enabled
+            }
+            if let trae = object["trae"] as? [String: Any],
+               let enabled = trae["enabled"] as? Bool {
+                config.traeEnabled = enabled
             }
         }
         if config.deepSeekAPIKey == nil {
@@ -105,10 +121,13 @@ struct BalanceConfig: Equatable {
                   "_comment": "算力环额外账户配置。只保存在本机，权限 0600。",
                   "deepseek": { "apiKey": "" },
                   "doubao": { "cookie": "", "productLine": "" },
+                  "gemini": { "enabled": true },
                   "workbuddy": { "enabled": true },
                   "workbuddyintl": { "enabled": true },
                   "dumate": { "enabled": true },
-                  "qwenwork": { "enabled": true }
+                  "qwenwork": { "enabled": true },
+                  "qoder": { "enabled": true },
+                  "trae": { "enabled": true }
                 }
                 """
                 try template.write(to: fileURL, atomically: true, encoding: .utf8)

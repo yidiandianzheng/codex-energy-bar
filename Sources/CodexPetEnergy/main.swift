@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let rateLimitClient = CodexRateLimitClient()
     private let projectUsageMonitor = ProjectUsageMonitor()
     private let radarClient = ResetRadarClient()
+    private let leaderboardClient = ModelLeaderboardClient()
     private let balanceMonitor = BalanceMonitor()
     private let clientMonitor = ClientRunningMonitor()
     private var panelController: EnergyPanelController?
@@ -16,7 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Publish the client-state snapshot before the panel first renders, so a
-        // closed 豆包/WorkBuddy/千问办公 never flashes in the compact bar.
+        // closed 豆包/WorkBuddy/千问办公/Qoder CN/Trae CN never flashes in the
+        // compact bar.
         clientMonitor.onChange = { [weak self] accounts in
             guard let self else { return }
             let previous = self.store.runningClientIDs
@@ -52,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 let request = self.store.refreshRequest
                 if request.radar { self.radarClient.refresh() }
+                if request.leaderboard { self.leaderboardClient.refresh() }
                 if request.projects {
                     self.store.beginProjectRefresh()
                     self.projectUsageMonitor.refresh(force: true)
@@ -67,6 +70,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         radarClient.onLoading = { [weak self] in self?.store.beginRadarRefresh() }
         radarClient.onUpdate = { [weak self] in self?.store.applyRadar($0) }
         radarClient.start()
+        leaderboardClient.onLoading = { [weak self] in self?.store.beginLeaderboardRefresh() }
+        leaderboardClient.onModels = { [weak self] models, supplement in self?.store.applyLeaderboard(models, supplement: supplement) }
+        leaderboardClient.onError = { [weak self] _ in self?.store.markLeaderboardUnavailable() }
+        leaderboardClient.start()
         rateLimitClient.onSnapshot = { [weak self] result in
             self?.store.apply(result)
         }
@@ -94,7 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        store.stopNightWatch()
         radarClient.stop()
+        leaderboardClient.stop()
         balanceMonitor.stop()
         clientMonitor.stop()
         controlServer.stop()

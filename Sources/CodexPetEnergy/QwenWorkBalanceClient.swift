@@ -36,7 +36,7 @@ enum QwenWorkUsageParser {
             return BalanceProvider.qwenwork.failed("千问办公返回错误：\(errorMessage(in: quotaData))")
         }
         if let available = booleanValue(quotaData["available"]), !available {
-            let message = stringValue(quotaData["message"]) ?? "暂无可用的 Credits 数据"
+            let message = stringValue(quotaData["message"]) ?? "暂无可用的积分数据"
             let lowercased = message.lowercased()
             if message.contains("登录") || lowercased.contains("log in")
                 || lowercased.contains("login") || lowercased.contains("logged")
@@ -51,7 +51,7 @@ enum QwenWorkUsageParser {
         let addOn = quota(quotaData["addOnCredits"] ?? quotaData["add_on_credits"])
         let shared = sharedPackage(quotaData["sharedResourcePackage"] ?? quotaData["shared_resource_package"])
         guard plan != nil || addOn != nil || shared != nil else {
-            return BalanceProvider.qwenwork.failed("接口未返回 Credits 额度（可能版本已变化）")
+            return BalanceProvider.qwenwork.failed("接口未返回积分额度（可能版本已变化）")
         }
 
         var capacity: Double = 0
@@ -115,9 +115,9 @@ enum QwenWorkUsageParser {
         if exceeded {
             caption = "额度已用尽"
         } else if percent != nil {
-            caption = "套餐 Credits 剩余"
+            caption = "套餐积分剩余"
         } else {
-            caption = "剩余 Credits"
+            caption = "剩余积分"
         }
 
         return BalanceReading(
@@ -126,7 +126,7 @@ enum QwenWorkUsageParser {
             systemImage: BalanceProvider.qwenwork.systemImage,
             valueText: amountText,
             unitPrefix: nil,
-            unitSuffix: " Credits",
+            unitSuffix: " 积分",
             caption: caption,
             detail: details.isEmpty ? nil : details.joined(separator: " · "),
             percent: percent,

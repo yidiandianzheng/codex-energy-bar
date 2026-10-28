@@ -13,7 +13,7 @@ struct MiniLayoutSnapshots {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         for dark in [false, true] {
             for size in CommandLine.arguments.contains("--spot-check") ? [CompactPanelSize.level1] : CompactPanelSize.allCases {
-                for scenario in CommandLine.arguments.contains("--spot-check") ? ["full", "large-values", "error"] : ["full", "no-watch", "error", "watch-no-odds", "reference", "average", "countdown", "countdown-days", "countdown-due", "codex-only", "pricing"] {
+                for scenario in CommandLine.arguments.contains("--spot-check") ? ["full", "large-values", "error"] : ["full", "no-watch", "error", "watch-no-odds", "reference", "average", "countdown", "countdown-days", "countdown-due", "codex-only", "pricing", "night", "night-notice"] {
                     let failure = scenario == "error"
                     let scale = size.scale
                     let limits = [QuotaLimitReading(id: "codex-primary", title: "5 小时", remainingPercent: 75,
@@ -43,9 +43,25 @@ struct MiniLayoutSnapshots {
                             caption: "剩余积分", detail: "体验版 · 已用 6,504.88 / 6,700", percent: 3, windows: [],
                             state: .ok, sourceURL: nil, updatedAt: now, numericValue: scenario == "large-values" ? 1_000_000_000_000_000 : 195.12, sourceIdentity: "demo-workbuddy"),
                         BalanceReading(id: "qwenwork", title: "千问办公", systemImage: "wand.and.stars",
-                            valueText: scenario == "large-values" ? "123,456,789.1" : "1,989.6", unitPrefix: nil, unitSuffix: " Credits",
-                            caption: "剩余 Credits", detail: "个人免费版", percent: nil, windows: [],
+                            valueText: scenario == "large-values" ? "123,456,789.1" : "1,989.6", unitPrefix: nil, unitSuffix: " 积分",
+                            caption: "剩余积分", detail: "个人免费版", percent: nil, windows: [],
                             state: .ok, sourceURL: nil, updatedAt: now, numericValue: scenario == "large-values" ? 123456789.12 : 1989.59, currency: "credits", sourceIdentity: "demo-qwenwork"),
+                        BalanceReading(id: "qoder", title: "Qoder CN", systemImage: "curlybraces",
+                            valueText: scenario == "large-values" ? "123,456,789.1" : "373.0", unitPrefix: nil, unitSuffix: " 积分",
+                            caption: "套餐积分剩余", detail: "Pro Trial · 附加 已用 25 / 100", percent: 93, windows: [],
+                            state: .ok, sourceURL: nil, updatedAt: now, numericValue: scenario == "large-values" ? 123456789.12 : 373, currency: "credits", sourceIdentity: "demo-qoder"),
+                        BalanceReading(id: "trae", title: "Trae CN", systemImage: "chevron.left.forwardslash.chevron.right",
+                            valueText: scenario == "large-values" ? "123,456,789.1" : "576.9", unitPrefix: nil, unitSuffix: " 积分",
+                            caption: "套餐积分剩余", detail: "每月登录积分 500 · 已用 23.1 / 600", percent: 96, windows: [],
+                            state: .ok, sourceURL: nil, updatedAt: now, numericValue: scenario == "large-values" ? 123456789.12 : 576.9, currency: "credits", sourceIdentity: "demo-trae"),
+                        BalanceReading(id: "workbuddyintl", title: "WorkBuddy AI", systemImage: "globe",
+                            valueText: "88.4", unitPrefix: nil, unitSuffix: " 积分",
+                            caption: "剩余积分", detail: "体验版", percent: 62, windows: [],
+                            state: .ok, sourceURL: nil, updatedAt: now, numericValue: 88.4, currency: "credits", sourceIdentity: "demo-workbuddy-intl"),
+                        BalanceReading(id: "dumate", title: "百度搭子", systemImage: "person.2.badge.gearshape",
+                            valueText: "120.0", unitPrefix: nil, unitSuffix: " 积分",
+                            caption: "剩余积分", detail: "个人版", percent: 41, windows: [],
+                            state: .ok, sourceURL: nil, updatedAt: now, numericValue: 120, currency: "credits", sourceIdentity: "demo-dumate"),
                     ]
                     if failure {
                         readings[0].state = .stale("演示：保留上次额度")
@@ -53,6 +69,10 @@ struct MiniLayoutSnapshots {
                         readings[2] = BalanceProvider.doubao.failed("演示：客户端未运行")
                         readings[3] = BalanceProvider.workbuddy.failed("演示：读取失败")
                         readings[4] = BalanceProvider.qwenwork.failed("演示：客户端未运行")
+                        readings[5] = BalanceProvider.qoder.failed("演示：读取失败")
+                        readings[6] = BalanceProvider.trae.unconfigured("演示：请先登录 Trae CN")
+                        readings[7] = BalanceProvider.workbuddyintl.failed("演示：客户端未运行")
+                        readings[8] = BalanceProvider.dumate.failed("演示：读取失败")
                     }
                     // Auto-hide worst case: the bar keeps only the primary account.
                     let visibleReadings = scenario == "codex-only" ? [codex] : readings
@@ -82,13 +102,20 @@ struct MiniLayoutSnapshots {
                     }
                     let countdown = radar.countdownTarget(now: .now) != nil
                     let showsPricing = scenario == "pricing"
-                    let base = EnergyPanelLayout.compactBaseSize(showsCountdown: countdown, showsPricing: showsPricing)
+                    let nightWatchActive = scenario == "night"
+                    let nightWatchNotice = scenario == "night-notice" ? "电量 9%，已自动关闭" : nil
+                    let base = EnergyPanelLayout.compactBaseSize(accounts: visibleReadings.count,
+                        showsCountdown: countdown, showsPricing: showsPricing)
                     let root = CompactEnergyBar(readings: visibleReadings, advice: advice,
                         todayTokens: 1_234_500_000_000, projectError: failure ? "同步失败" : nil,
                         showAccount: { _ in }, showAccounts: {}, showProjects: {},
                         radarSnapshot: radar, showsCountdown: countdown, showRadar: {},
                         pricingSnapshot: showsPricing ? PricingEngine.snapshot(at: now, catalog: .builtIn) : nil,
-                        showsPricing: showsPricing, showPricing: {})
+                        showsPricing: showsPricing, showPricing: {},
+                        nightWatchActive: nightWatchActive,
+                        nightWatchElapsed: nightWatchActive ? "已开启 2 小时 13 分" : nil,
+                        nightWatchNotice: nightWatchNotice,
+                        toggleNightWatch: {})
                         .frame(width: base.width, height: base.height)
                         .scaleEffect(scale, anchor: .topLeading)
                         .frame(width: base.width * scale, height: base.height * scale, alignment: .topLeading)
@@ -105,7 +132,7 @@ struct MiniLayoutSnapshots {
                     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
                     view.layoutSubtreeIfNeeded()
                     let regions = markers(in: view)
-                    precondition(regions.count == visibleReadings.count + 3 + (countdown ? 1 : 0) + (showsPricing ? 1 : 0),
+                    precondition(regions.count == visibleReadings.count + 4 + (countdown ? 1 : 0) + (showsPricing ? 1 : 0),
                                  "Every visible button must publish a layout marker")
                     let rects = regions.map { $0.convert($0.bounds, to: view) }
                     for (index, rect) in rects.enumerated() where !frame.insetBy(dx: -0.5, dy: -0.5).contains(rect) {
@@ -152,11 +179,13 @@ extension MiniLayoutSnapshots {
             showAccounts: { activated.append(.balance) }, showProjects: { activated.append(.projects) })
         let wrapper = PanelContentView(rootView: root, menuProvider: { NSMenu() },
             dragDidEnd: { drags += 1 }, isCompact: { true }, activateCompactTarget: { activated.append($0) })
-        let window = MiniInteractionPanel(contentRect: CGRect(origin: CGPoint(x: 100, y: 100), size: EnergyPanelLayout.compactBaseSize),
+        let fixtureSize = EnergyPanelLayout.size(for: .compact, accounts: readings.count,
+            compactSize: .level1, showsCountdown: false, showsPricing: false)
+        let window = MiniInteractionPanel(contentRect: CGRect(origin: CGPoint(x: 100, y: 100), size: fixtureSize),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = wrapper
-        wrapper.frame = CGRect(origin: .zero, size: EnergyPanelLayout.compactBaseSize)
+        wrapper.frame = CGRect(origin: .zero, size: fixtureSize)
         NSApp.setActivationPolicy(.accessory)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -184,6 +213,17 @@ extension MiniLayoutSnapshots {
         wrapper.mouseUp(with: event(.leftMouseUp, at: CGPoint(x: point.x + 20, y: point.y + 12)))
         precondition(activated.isEmpty && drags == 1, "Dragging must not activate navigation")
         print("PASS AppKit drag does not navigate")
+
+        if let nightRegion = markers(in: wrapper).first(where: { $0.target == .nightWatch }) {
+            let nightPoint = nightRegion.convert(CGPoint(x: nightRegion.bounds.midX, y: nightRegion.bounds.midY), to: nil)
+            activated = []
+            wrapper.mouseDown(with: event(.leftMouseDown, at: nightPoint))
+            wrapper.mouseUp(with: event(.leftMouseUp, at: nightPoint))
+            precondition(activated == [.nightWatch], "Night watch row must publish its toggle action")
+            print("PASS AppKit night watch toggle")
+        } else {
+            preconditionFailure("Mini bar must expose the night watch action region")
+        }
 
         // SwiftUI.AccessibilityNode implements AX selectors without declaring
         // NSAccessibilityProtocol, so inspect the objects returned by AppKit directly.

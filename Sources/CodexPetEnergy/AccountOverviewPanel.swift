@@ -37,7 +37,7 @@ struct AccountOverviewPanel: View {
                     }
                 }
                 DisclosureGroup("数据说明", isExpanded: $explainsData) {
-                    Text("Codex 为本机今日 Token；DeepSeek 为本机今日余额减少；豆包为本窗口已用百分比；WorkBuddy 与千问办公为本机今日观测值，身份或基线未确认时显示未知。各项独立计量，缺少样本显示 —。旧数据保留上次读数，不参与推荐。")
+                    Text("Codex 为本机今日 Token；DeepSeek 为本机今日余额减少；Gemini 为当前 5 小时窗口已用百分比；豆包为本窗口已用百分比；WorkBuddy、千问办公、Qoder CN 与 Trae CN 为本机今日观测值，身份或基线未确认时显示未知。各项独立计量，缺少样本显示 —。旧数据保留上次读数，不参与推荐。")
                         .font(EnergyTypography.Detail.caption).foregroundStyle(.secondary).padding(.top, 5)
                 }.font(EnergyTypography.Detail.caption)
             }.padding(.horizontal, EnergyVisualStyle.panelInset).padding(.bottom, 18)
@@ -90,10 +90,11 @@ struct AccountOverviewPanel: View {
 
     private func usagePeriod(_ reading: BalanceReading) -> String {
         if case .stale = reading.state { return "上次数据" }
-        if reading.id == "doubao" { return "本窗口" }
+        if reading.id == "doubao" || reading.id == "gemini" { return "本窗口" }
         if reading.hasReading && todayUsage.valueText(for: reading.id) == nil {
             return (reading.id == "workbuddy" || reading.id == "workbuddyintl"
-                || reading.id == "dumate" || reading.id == "qwenwork") ? "今日观测未知" : "采样不足"
+                || reading.id == "dumate" || reading.id == "qwenwork"
+                || reading.id == "qoder" || reading.id == "trae") ? "今日观测未知" : "采样不足"
         }
         return "今日·本机"
     }
@@ -101,12 +102,12 @@ struct AccountOverviewPanel: View {
     private func usage(_ reading: BalanceReading) -> String {
         guard reading.hasReading else { return "—" }
         if case .stale = reading.state { return "—" }
-        if reading.id == "doubao", let percent = reading.percent { return "\(max(0, 100 - percent))%" }
+        if reading.id == "doubao" || reading.id == "gemini", let percent = reading.percent { return "\(max(0, 100 - percent))%" }
         guard let value = todayUsage.valueText(for: reading.id) else { return "—" }
         switch reading.id {
         case BalanceReading.codexID: return value + " Token"
         case "workbuddy", "workbuddyintl", "dumate": return value + " 积分"
-        case "qwenwork": return value + " Credits"
+        case "qwenwork", "qoder", "trae": return value + " 积分"
         case "deepseek":
             let prefix = todayUsage.currencyPrefixes[reading.id] ?? reading.unitPrefix ?? ""
             return value.hasPrefix(prefix) || prefix.isEmpty ? value : prefix + value
@@ -116,7 +117,8 @@ struct AccountOverviewPanel: View {
 
     private func reset(_ reading: BalanceReading) -> String {
         guard reading.hasReading else { return "—" }
-        if reading.id == "deepseek" || reading.id == "qwenwork" || reading.id == "dumate" { return "无周期" }
+        if reading.id == "deepseek" || reading.id == "qwenwork" || reading.id == "dumate"
+            || reading.id == "qoder" || reading.id == "trae" { return "无周期" }
         guard let date = (reading.windows.first(where: \.isPrimary) ?? reading.windows.first)?.resetAt else { return "未提供" }
         return EnergyLogic.shortResetText(until: date)
     }
